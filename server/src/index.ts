@@ -55,6 +55,12 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ message: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+console.log('Starting server...');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('PORT:', PORT);
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'Set' : 'Not set');
+
+const port = typeof PORT === 'string' ? parseInt(PORT, 10) : PORT;
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server running on port ${port}`);
 });
