@@ -1,0 +1,83 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  background-color: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  height: 100vh;
+}
+
+.sidebar-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 1rem 0;
+  overflow-y: auto;
+}
+
+.nav-link {
+  display: block;
+  padding: 0.75rem 1.5rem;
+  color: var(--text);
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.nav-link:hover {
+  background-color: var(--background);
+  text-decoration: none;
+}
+
+.nav-link.active {
+  background-color: #eff6ff;
+  color: var(--primary);
+  border-right: 3px solid var(--primary);
+  font-weight: 500;
+}
+
+.sidebar-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.user-info {
+  margin-bottom: 0.75rem;
+}
+
+.user-name {
+  display: block;
+  font-weight: 500;
+}
+
+.user-role {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--text-light);
+  text-transform: capitalize;
+}
+
+.logout-btn {
+  width: 100%;
+  padding: 0.5rem;
+}
+
+.main-content {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  padding: 2rem;
+}
