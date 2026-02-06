@@ -1,33 +1,37 @@
-# Build stage for frontend
-FROM node:20-alpine AS frontend-build
-WORKDIR /app/client
-COPY client/package*.json ./
-RUN npm ci
-COPY client/ ./
+# Build stage
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY client/package.json ./client/
+COPY server/package.json ./server/
+
+# Install all dependencies
+RUN npm install
+
+# Copy source code
+COPY client/ ./client/
+COPY server/ ./server/
+COPY database/ ./database/
+
+# Build client and server
 RUN npm run build
 
-# Build stage for backend
-FROM node:20-alpine AS backend-build
-WORKDIR /app/server
-COPY server/package*.json ./
-RUN npm ci
-COPY server/ ./
-RUN npm run build
+# Copy client build to server's public folder
+RUN mkdir -p server/dist/public && cp -r client/dist/* server/dist/public/
 
 # Production stage
 FROM node:20-alpine AS production
 WORKDIR /app
 
-# Copy backend build and dependencies
-COPY --from=backend-build /app/server/dist ./dist
-COPY --from=backend-build /app/server/node_modules ./node_modules
-COPY --from=backend-build /app/server/package.json ./
+# Copy server build and production dependencies
+COPY --from=build /app/server/dist ./dist
+COPY --from=build /app/server/package.json ./
+COPY --from=build /app/database/migrations ./migrations
 
-# Copy frontend build to serve as static files
-COPY --from=frontend-build /app/client/dist ./dist/public
-
-# Copy migrations
-COPY database/migrations ./migrations
+# Install production dependencies only
+RUN npm install --omit=dev
 
 ENV NODE_ENV=production
 ENV PORT=4000
