@@ -101,4 +101,68 @@ export const importExportApi = {
   getTemplates: () => api.get('/import/templates'),
 }
 
+export interface Promotion {
+  id: number
+  promo_name: string
+  country: string | null
+  channel: string | null
+  start_date: string
+  end_date: string
+  discount_percent: number
+  notes: string | null
+  status: string
+  created_at: string
+}
+
+export const promotionsApi = {
+  list: () => api.get<Promotion[]>('/promotions'),
+  create: (data: Omit<Promotion, 'id' | 'created_at'>) =>
+    api.post<Promotion>('/promotions', data),
+  update: (id: number, data: Partial<Omit<Promotion, 'id' | 'created_at'>>) =>
+    api.put<Promotion>(`/promotions/${id}`, data),
+  delete: (id: number) => api.delete(`/promotions/${id}`),
+}
+
+export const channelForecastApi = {
+  getChannels: () => api.get('/channel-forecast/channels'),
+  getBaseline: (data: {
+    startDate: string
+    endDate: string
+    countryBucket: string
+    channelGroup: string
+    ringBasis: string
+  }) => api.post('/channel-forecast/baseline', data),
+  getSettings: (channelGroup: string, countryBucket: string) =>
+    api.get('/channel-forecast/settings', { params: { channelGroup, countryBucket } }),
+  saveSettings: (data: {
+    channelGroup: string
+    countryBucket: string
+    months: {
+      forecastMonth: string
+      baselineDrr: number
+      liftPct: number
+      momGrowthPct: number
+      distributionMethod: string
+      baselineStartDate: string | null
+      baselineEndDate: string | null
+      ringBasis: string
+    }[]
+  }) => api.put('/channel-forecast/settings', data),
+  saveSkuDistribution: (data: {
+    channelGroup: string
+    countryBucket: string
+    skus: {
+      sku: string
+      autoWeightPct: number
+      manualWeightPct: number | null
+      isOverride: boolean
+    }[]
+  }) => api.put('/channel-forecast/sku-distribution', data),
+  saveForecasts: (data: {
+    channelGroup: string
+    countryBucket: string
+    forecasts: { sku: string; forecastMonth: string; forecastUnits: number }[]
+  }) => api.post('/channel-forecast/save-forecasts', data),
+}
+
 export default api

@@ -10,7 +10,7 @@ router.use(requireRole('admin'));
 router.get('/', async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const result = await query(
-      'SELECT id, email, name, role, created_at as "createdAt" FROM users ORDER BY created_at DESC'
+      'SELECT id, email, name, role, assigned_channels as "assignedChannels", created_at as "createdAt" FROM users ORDER BY created_at DESC'
     );
     res.json(result.rows);
   } catch (error) {
@@ -35,7 +35,7 @@ router.patch('/:id/role', async (req: AuthRequest, res: Response): Promise<void>
     }
 
     const result = await query(
-      'UPDATE users SET role = $1 WHERE id = $2 RETURNING id, email, name, role',
+      'UPDATE users SET role = $1 WHERE id = $2 RETURNING id, email, name, role, assigned_channels as "assignedChannels"',
       [role, id]
     );
 
@@ -48,6 +48,33 @@ router.patch('/:id/role', async (req: AuthRequest, res: Response): Promise<void>
   } catch (error) {
     console.error('Failed to update user role:', error);
     res.status(500).json({ message: 'Failed to update role' });
+  }
+});
+
+router.patch('/:id/channels', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { assigned_channels } = req.body;
+
+    if (!Array.isArray(assigned_channels)) {
+      res.status(400).json({ message: 'assigned_channels must be an array' });
+      return;
+    }
+
+    const result = await query(
+      'UPDATE users SET assigned_channels = $1 WHERE id = $2 RETURNING id, email, name, role, assigned_channels as "assignedChannels"',
+      [assigned_channels, id]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Failed to update user channels:', error);
+    res.status(500).json({ message: 'Failed to update channels' });
   }
 });
 

@@ -11,6 +11,8 @@ import demandRoutes from './routes/demand.js';
 import forecastRoutes from './routes/forecast.js';
 import alertRoutes from './routes/alerts.js';
 import importExportRoutes from './routes/importExport.js';
+import promotionRoutes from './routes/promotions.js';
+import channelForecastRoutes from './routes/channel-forecast.js';
 
 dotenv.config();
 
@@ -37,6 +39,8 @@ app.use('/api/demand', demandRoutes);
 app.use('/api/forecast', forecastRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api', importExportRoutes);
+app.use('/api/promotions', promotionRoutes);
+app.use('/api/channel-forecast', channelForecastRoutes);
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {

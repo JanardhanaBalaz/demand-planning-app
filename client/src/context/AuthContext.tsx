@@ -6,6 +6,7 @@ interface User {
   email: string
   name: string
   role: 'admin' | 'analyst' | 'viewer'
+  assigned_channels: string[]
 }
 
 interface AuthContextType {

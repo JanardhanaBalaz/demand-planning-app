@@ -8,6 +8,7 @@ export interface AuthRequest extends Request {
     email: string;
     name: string;
     role: 'admin' | 'analyst' | 'viewer';
+    assigned_channels: string[];
   };
 }
 
@@ -27,7 +28,7 @@ export const authenticate = async (
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: number };
 
     const result = await query(
-      'SELECT id, email, name, role FROM users WHERE id = $1',
+      'SELECT id, email, name, role, assigned_channels FROM users WHERE id = $1',
       [decoded.userId]
     );
 

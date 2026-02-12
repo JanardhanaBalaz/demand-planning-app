@@ -33,6 +33,12 @@ function Layout() {
           <NavLink to="/forecasts" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Forecasts
           </NavLink>
+          <NavLink to="/promotion-calendar" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            Promotion Calendar
+          </NavLink>
+          <NavLink to="/channel-forecast" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            Channel Forecast
+          </NavLink>
           <NavLink to="/import" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Import/Export
           </NavLink>

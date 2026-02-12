@@ -43,7 +43,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const role = parseInt(countResult.rows[0].count) === 0 ? 'admin' : 'viewer';
 
     const result = await query(
-      'INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4) RETURNING id, email, name, role',
+      'INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4) RETURNING id, email, name, role, assigned_channels',
       [email, passwordHash, name, role]
     );
 
@@ -67,7 +67,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     const result = await query(
-      'SELECT id, email, name, role, password_hash FROM users WHERE email = $1',
+      'SELECT id, email, name, role, password_hash, assigned_channels FROM users WHERE email = $1',
       [email]
     );
 
@@ -88,7 +88,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     res.json({
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role, assigned_channels: user.assigned_channels || [] },
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -151,7 +151,7 @@ router.post('/google/callback', async (req: Request, res: Response): Promise<voi
 
     // Check if user exists
     let result = await query(
-      'SELECT id, email, name, role FROM users WHERE email = $1',
+      'SELECT id, email, name, role, assigned_channels FROM users WHERE email = $1',
       [email]
     );
 
@@ -162,7 +162,7 @@ router.post('/google/callback', async (req: Request, res: Response): Promise<voi
       const role = parseInt(countResult.rows[0].count) === 0 ? 'admin' : 'viewer';
 
       result = await query(
-        'INSERT INTO users (email, password_hash, name, role, google_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role',
+        'INSERT INTO users (email, password_hash, name, role, google_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role, assigned_channels',
         [email, '', name || email.split('@')[0], role, googleId]
       );
       user = result.rows[0];

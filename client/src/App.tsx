@@ -11,6 +11,8 @@ import Demand from './pages/Demand'
 import Forecasts from './pages/Forecasts'
 import Import from './pages/Import'
 import Users from './pages/Users'
+import PromotionCalendar from './pages/PromotionCalendar'
+import ChannelForecast from './pages/ChannelForecast'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -61,6 +63,8 @@ function App() {
         <Route path="inventory" element={<Inventory />} />
         <Route path="demand" element={<Demand />} />
         <Route path="forecasts" element={<Forecasts />} />
+        <Route path="promotion-calendar" element={<PromotionCalendar />} />
+        <Route path="channel-forecast" element={<ChannelForecast />} />
         <Route path="import" element={<Import />} />
         <Route
           path="users"

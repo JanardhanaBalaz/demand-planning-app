@@ -1,0 +1,304 @@
+import { Router, Response } from 'express';
+import { query } from '../models/db.js';
+import { authenticate, AuthRequest } from '../middleware/auth.js';
+
+const router = Router();
+
+router.use(authenticate);
+
+const CHANNEL_GROUPS: Record<string, string[]> = {
+  'B2C': ['B2C', 'B2C - With Charger', 'B2C - Without Charger', 'D2C', 'D2C - With Charger', 'D2C - Without Charger'],
+  'Retail': ['Retail', 'Retail - With Charger', 'Retail - Without Charger'],
+  'Marketplace': ['Marketplace', 'Marketplace - With Charger', 'Marketplace - Without Charger',
+                   'Amazon', 'Amazon - With Charger', 'Amazon - Without Charger',
+                   'Flipkart', 'Flipkart - With Charger', 'Flipkart - Without Charger'],
+};
+
+const METABASE_URL = process.env.METABASE_URL || 'https://metabase.example.com';
+const METABASE_TOKEN = process.env.METABASE_TOKEN || '';
+
+async function fetchQ19170(startDate: string, endDate: string): Promise<unknown[]> {
+  const url = `${METABASE_URL}/api/card/19170/query`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Metabase-Session': METABASE_TOKEN,
+    },
+    body: JSON.stringify({
+      parameters: [
+        { type: 'date/range', target: ['variable', ['template-tag', 'date_range']], value: `${startDate}~${endDate}` },
+      ],
+    }),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Metabase Q19170 failed: ${resp.status}`);
+  }
+
+  const data = await resp.json() as { data?: { rows?: unknown[][]; cols?: { name: string }[] } };
+  if (!data.data?.rows || !data.data?.cols) {
+    return [];
+  }
+
+  const cols = data.data.cols.map((c: { name: string }) => c.name);
+  return data.data.rows.map((row: unknown[]) => {
+    const obj: Record<string, unknown> = {};
+    cols.forEach((col: string, i: number) => {
+      obj[col] = row[i];
+    });
+    return obj;
+  });
+}
+
+// GET /channels - Returns channel groups accessible to current user
+router.get('/channels', (req: AuthRequest, res: Response): void => {
+  const user = req.user!;
+  const allGroups = Object.keys(CHANNEL_GROUPS);
+
+  if (user.role === 'admin' || !user.assigned_channels || user.assigned_channels.length === 0) {
+    res.json({ channels: allGroups });
+    return;
+  }
+
+  const accessible = allGroups.filter(g => user.assigned_channels!.includes(g));
+  res.json({ channels: accessible });
+});
+
+// POST /baseline - Query Metabase Q19170 live with date range, region, ring basis
+router.post('/baseline', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { startDate, endDate, countryBucket, channelGroup, ringBasis } = req.body;
+
+    if (!startDate || !endDate || !countryBucket || !channelGroup) {
+      res.status(400).json({ message: 'startDate, endDate, countryBucket, and channelGroup are required' });
+      return;
+    }
+
+    const channelValues = CHANNEL_GROUPS[channelGroup];
+    if (!channelValues) {
+      res.status(400).json({ message: `Invalid channel group: ${channelGroup}` });
+      return;
+    }
+
+    const rows = await fetchQ19170(startDate, endDate) as Record<string, unknown>[];
+
+    // Filter rows by channel group mapping and region
+    const filtered = rows.filter((row) => {
+      const rowChannel = String(row['channel'] || row['Channel'] || '');
+      const rowCountry = String(row['country_bucket'] || row['Country Bucket'] || row['country'] || '');
+      const rowRingBasis = String(row['ring_basis'] || row['Ring Basis'] || 'activated');
+
+      const channelMatch = channelValues.some(ch => rowChannel.toLowerCase() === ch.toLowerCase());
+      const countryMatch = rowCountry.toLowerCase() === countryBucket.toLowerCase();
+      const basisMatch = !ringBasis || rowRingBasis.toLowerCase() === ringBasis.toLowerCase();
+
+      return channelMatch && countryMatch && basisMatch;
+    });
+
+    // Calculate date range days
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+    // Aggregate total rings and per-SKU breakdown
+    let totalRings = 0;
+    const skuMap: Record<string, number> = {};
+
+    for (const row of filtered) {
+      const rings = Number(row['rings'] || row['Rings'] || row['total_rings'] || 0);
+      const sku = String(row['sku'] || row['SKU'] || row['sku_name'] || 'Unknown');
+
+      totalRings += rings;
+      skuMap[sku] = (skuMap[sku] || 0) + rings;
+    }
+
+    const baselineDrr = totalRings / days;
+
+    // Per-SKU breakdown with auto weight %
+    const skuBreakdown = Object.entries(skuMap).map(([sku, rings]) => ({
+      sku,
+      rings,
+      autoWeightPct: totalRings > 0 ? (rings / totalRings) * 100 : 0,
+    }));
+
+    skuBreakdown.sort((a, b) => b.rings - a.rings);
+
+    res.json({
+      baselineDrr,
+      totalRings,
+      days,
+      channelGroup,
+      countryBucket,
+      ringBasis: ringBasis || 'activated',
+      startDate,
+      endDate,
+      skuBreakdown,
+    });
+  } catch (error) {
+    console.error('Failed to fetch baseline:', error);
+    res.status(500).json({ message: 'Failed to fetch baseline data from Metabase' });
+  }
+});
+
+// GET /settings - Retrieve saved forecast settings for a channel+region
+router.get('/settings', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { channelGroup, countryBucket } = req.query;
+
+    if (!channelGroup || !countryBucket) {
+      res.status(400).json({ message: 'channelGroup and countryBucket are required' });
+      return;
+    }
+
+    const settingsResult = await query(
+      `SELECT id, channel_group as "channelGroup", country_bucket as "countryBucket",
+       forecast_month as "forecastMonth", baseline_drr as "baselineDrr",
+       lift_pct as "liftPct", mom_growth_pct as "momGrowthPct",
+       distribution_method as "distributionMethod",
+       baseline_start_date as "baselineStartDate", baseline_end_date as "baselineEndDate",
+       ring_basis as "ringBasis", updated_at as "updatedAt"
+       FROM channel_forecast_settings
+       WHERE channel_group = $1 AND country_bucket = $2
+       ORDER BY forecast_month`,
+      [channelGroup, countryBucket]
+    );
+
+    const skuResult = await query(
+      `SELECT id, channel_group as "channelGroup", country_bucket as "countryBucket",
+       sku, auto_weight_pct as "autoWeightPct", manual_weight_pct as "manualWeightPct",
+       is_override as "isOverride"
+       FROM channel_sku_distribution
+       WHERE channel_group = $1 AND country_bucket = $2
+       ORDER BY auto_weight_pct DESC`,
+      [channelGroup, countryBucket]
+    );
+
+    res.json({
+      settings: settingsResult.rows,
+      skuDistribution: skuResult.rows,
+    });
+  } catch (error) {
+    console.error('Failed to fetch settings:', error);
+    res.status(500).json({ message: 'Failed to fetch forecast settings' });
+  }
+});
+
+// PUT /settings - Save lift%, growth%, distribution method for 12 months
+router.put('/settings', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { channelGroup, countryBucket, months } = req.body;
+
+    if (!channelGroup || !countryBucket || !Array.isArray(months)) {
+      res.status(400).json({ message: 'channelGroup, countryBucket, and months array are required' });
+      return;
+    }
+
+    for (const month of months) {
+      await query(
+        `INSERT INTO channel_forecast_settings
+         (channel_group, country_bucket, forecast_month, baseline_drr, lift_pct, mom_growth_pct,
+          distribution_method, baseline_start_date, baseline_end_date, ring_basis, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+         ON CONFLICT (channel_group, country_bucket, forecast_month)
+         DO UPDATE SET
+           baseline_drr = EXCLUDED.baseline_drr,
+           lift_pct = EXCLUDED.lift_pct,
+           mom_growth_pct = EXCLUDED.mom_growth_pct,
+           distribution_method = EXCLUDED.distribution_method,
+           baseline_start_date = EXCLUDED.baseline_start_date,
+           baseline_end_date = EXCLUDED.baseline_end_date,
+           ring_basis = EXCLUDED.ring_basis,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = NOW()`,
+        [
+          channelGroup, countryBucket, month.forecastMonth,
+          month.baselineDrr || 0, month.liftPct || 0, month.momGrowthPct || 0,
+          month.distributionMethod || 'historical',
+          month.baselineStartDate || null, month.baselineEndDate || null,
+          month.ringBasis || 'activated', req.user!.id,
+        ]
+      );
+    }
+
+    res.json({ message: 'Settings saved', count: months.length });
+  } catch (error) {
+    console.error('Failed to save settings:', error);
+    res.status(500).json({ message: 'Failed to save forecast settings' });
+  }
+});
+
+// PUT /sku-distribution - Save SKU weight overrides
+router.put('/sku-distribution', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { channelGroup, countryBucket, skus } = req.body;
+
+    if (!channelGroup || !countryBucket || !Array.isArray(skus)) {
+      res.status(400).json({ message: 'channelGroup, countryBucket, and skus array are required' });
+      return;
+    }
+
+    for (const sku of skus) {
+      await query(
+        `INSERT INTO channel_sku_distribution
+         (channel_group, country_bucket, sku, auto_weight_pct, manual_weight_pct, is_override, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (channel_group, country_bucket, sku)
+         DO UPDATE SET
+           auto_weight_pct = EXCLUDED.auto_weight_pct,
+           manual_weight_pct = EXCLUDED.manual_weight_pct,
+           is_override = EXCLUDED.is_override,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = NOW()`,
+        [
+          channelGroup, countryBucket, sku.sku,
+          sku.autoWeightPct || 0,
+          sku.manualWeightPct !== undefined && sku.manualWeightPct !== null ? sku.manualWeightPct : null,
+          sku.isOverride || false,
+          req.user!.id,
+        ]
+      );
+    }
+
+    res.json({ message: 'SKU distribution saved', count: skus.length });
+  } catch (error) {
+    console.error('Failed to save SKU distribution:', error);
+    res.status(500).json({ message: 'Failed to save SKU distribution' });
+  }
+});
+
+// POST /save-forecasts - Materialize forecasts into demand_forecasts table
+router.post('/save-forecasts', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { channelGroup, countryBucket, forecasts } = req.body;
+
+    if (!channelGroup || !countryBucket || !Array.isArray(forecasts)) {
+      res.status(400).json({ message: 'channelGroup, countryBucket, and forecasts array are required' });
+      return;
+    }
+
+    let insertedCount = 0;
+
+    for (const forecast of forecasts) {
+      await query(
+        `INSERT INTO demand_forecasts
+         (channel_group, country_bucket, sku, forecast_month, forecast_units, created_by, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (channel_group, country_bucket, sku, forecast_month)
+         DO UPDATE SET
+           forecast_units = EXCLUDED.forecast_units,
+           created_by = EXCLUDED.created_by,
+           created_at = NOW()`,
+        [channelGroup, countryBucket, forecast.sku, forecast.forecastMonth, forecast.forecastUnits || 0, req.user!.id]
+      );
+      insertedCount++;
+    }
+
+    res.json({ message: 'Forecasts saved', count: insertedCount });
+  } catch (error) {
+    console.error('Failed to save forecasts:', error);
+    res.status(500).json({ message: 'Failed to save forecasts' });
+  }
+});
+
+export default router;
