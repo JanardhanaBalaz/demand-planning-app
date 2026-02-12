@@ -1,0 +1,34 @@
+databases:
+  - name: demand-planner-db
+    plan: free
+    databaseName: demand_planner
+    user: demand_planner
+
+services:
+  - type: web
+    name: demand-planner
+    runtime: docker
+    repo: https://github.com/JanardhanaBalaz/demand-planning-app.git
+    branch: main
+    dockerfilePath: ./Dockerfile
+    plan: free
+    preDeployCommand: "node dist/migrate.js"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: demand-planner-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: METABASE_URL
+        sync: false
+      - key: METABASE_TOKEN
+        sync: false

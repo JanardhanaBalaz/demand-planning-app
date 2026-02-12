@@ -10,7 +10,10 @@ async function migrate() {
   try {
     console.log('Running database migrations...');
 
-    const migrationsDir = path.join(__dirname, '../../database/migrations');
+    // Support both dev (../../database/migrations) and Docker production (/app/migrations)
+    const devPath = path.join(__dirname, '../../database/migrations');
+    const prodPath = path.join(__dirname, '../migrations');
+    const migrationsDir = fs.existsSync(devPath) ? devPath : prodPath;
     const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
 
     for (const file of files) {
