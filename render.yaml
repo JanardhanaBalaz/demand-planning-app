@@ -12,7 +12,6 @@ services:
     branch: main
     dockerfilePath: ./Dockerfile
     plan: free
-    preDeployCommand: "node dist/migrate.js"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
