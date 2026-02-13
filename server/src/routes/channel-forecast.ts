@@ -42,7 +42,6 @@ async function fetchQ19170(startDate: string, endDate: string): Promise<unknown[
   }
 
   const cols = data.data.cols.map((c: { name: string }) => c.name);
-  console.log(`[Q19170] columns: ${cols.join(', ')} | rows: ${data.data.rows.length}`);
   return data.data.rows.map((row: unknown[]) => {
     const obj: Record<string, unknown> = {};
     cols.forEach((col: string, i: number) => {
@@ -51,34 +50,6 @@ async function fetchQ19170(startDate: string, endDate: string): Promise<unknown[
     return obj;
   });
 }
-
-// GET /discover-channels - Returns distinct channel values from Q19170
-router.get('/discover-channels', async (_req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - 90);
-    const startDate = start.toISOString().slice(0, 10);
-    const endDate = end.toISOString().slice(0, 10);
-
-    const rows = await fetchQ19170(startDate, endDate) as Record<string, unknown>[];
-
-    const channelSet = new Set<string>();
-    const columns: string[] = rows.length > 0 ? Object.keys(rows[0]) : [];
-
-    for (const row of rows) {
-      const ch = String(row['channel'] || row['Channel'] || '').trim();
-      if (ch) channelSet.add(ch);
-    }
-
-    const channels = Array.from(channelSet).sort();
-
-    res.json({ channels, columns });
-  } catch (error) {
-    console.error('Failed to discover channels from Q19170, falling back to CHANNEL_GROUPS:', error);
-    res.json({ channels: Object.keys(CHANNEL_GROUPS), columns: [], fallback: true });
-  }
-});
 
 // GET /channels - Returns channel groups accessible to current user
 router.get('/channels', (req: AuthRequest, res: Response): void => {
@@ -97,43 +68,28 @@ router.get('/channels', (req: AuthRequest, res: Response): void => {
 // POST /baseline - Query Metabase Q19170 live with date range, region, ring basis
 router.post('/baseline', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { startDate, endDate, countryBucket, channelGroup, channel, ringBasis } = req.body;
+    const { startDate, endDate, countryBucket, channelGroup, ringBasis } = req.body;
 
-    if (!startDate || !endDate || !countryBucket || (!channelGroup && !channel)) {
-      res.status(400).json({ message: 'startDate, endDate, countryBucket, and channel (or channelGroup) are required' });
+    if (!startDate || !endDate || !countryBucket || !channelGroup) {
+      res.status(400).json({ message: 'startDate, endDate, countryBucket, and channelGroup are required' });
       return;
     }
 
-    // Determine channel matching strategy
-    let channelValues: string[] | null = null;
-    let directChannel: string | null = null;
-
-    if (channel) {
-      // New: direct channel match from Q19170 discover-channels
-      directChannel = channel;
-    } else {
-      // Legacy: channelGroup mapping
-      channelValues = CHANNEL_GROUPS[channelGroup];
-      if (!channelValues) {
-        res.status(400).json({ message: `Invalid channel group: ${channelGroup}` });
-        return;
-      }
+    const channelValues = CHANNEL_GROUPS[channelGroup];
+    if (!channelValues) {
+      res.status(400).json({ message: `Invalid channel group: ${channelGroup}` });
+      return;
     }
 
     const rows = await fetchQ19170(startDate, endDate) as Record<string, unknown>[];
 
-    // Filter rows by channel (direct or group) and region
+    // Filter rows by channel group mapping and region
     const filtered = rows.filter((row) => {
       const rowChannel = String(row['channel'] || row['Channel'] || '');
       const rowCountry = String(row['country_bucket'] || row['Country Bucket'] || row['country'] || '');
       const rowRingBasis = String(row['ring_basis'] || row['Ring Basis'] || 'activated');
 
-      let channelMatch: boolean;
-      if (directChannel) {
-        channelMatch = rowChannel.toLowerCase() === directChannel.toLowerCase();
-      } else {
-        channelMatch = channelValues!.some(ch => rowChannel.toLowerCase() === ch.toLowerCase());
-      }
+      const channelMatch = channelValues.some(ch => rowChannel.toLowerCase() === ch.toLowerCase());
       const countryMatch = rowCountry.toLowerCase() === countryBucket.toLowerCase();
       const basisMatch = !ringBasis || rowRingBasis.toLowerCase() === ringBasis.toLowerCase();
 
@@ -172,8 +128,7 @@ router.post('/baseline', async (req: AuthRequest, res: Response): Promise<void> 
       baselineDrr,
       totalRings,
       days,
-      channel: directChannel || channelGroup,
-      channelGroup: channelGroup || directChannel,
+      channelGroup,
       countryBucket,
       ringBasis: ringBasis || 'activated',
       startDate,

@@ -125,13 +125,11 @@ export const promotionsApi = {
 
 export const channelForecastApi = {
   getChannels: () => api.get('/channel-forecast/channels'),
-  discoverChannels: () => api.get('/channel-forecast/discover-channels'),
   getBaseline: (data: {
     startDate: string
     endDate: string
     countryBucket: string
-    channel: string
-    channelGroup?: string
+    channelGroup: string
     ringBasis: string
   }) => api.post('/channel-forecast/baseline', data),
   getSettings: (channelGroup: string, countryBucket: string) =>
