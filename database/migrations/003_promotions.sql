@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS promotions (
     discount_percent DECIMAL(5, 2) NOT NULL DEFAULT 0,
     notes TEXT,
     status VARCHAR(50) NOT NULL DEFAULT 'scheduled' CHECK (status IN ('active', 'scheduled', 'completed', 'cancelled')),
-    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

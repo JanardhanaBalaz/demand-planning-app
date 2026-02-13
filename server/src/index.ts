@@ -5,12 +5,6 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
-import productRoutes from './routes/products.js';
-import inventoryRoutes from './routes/inventory.js';
-import demandRoutes from './routes/demand.js';
-import forecastRoutes from './routes/forecast.js';
-import alertRoutes from './routes/alerts.js';
-import importExportRoutes from './routes/importExport.js';
 import promotionRoutes from './routes/promotions.js';
 import channelForecastRoutes from './routes/channel-forecast.js';
 
@@ -33,12 +27,6 @@ app.get('/api/health', (_, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/inventory', inventoryRoutes);
-app.use('/api/demand', demandRoutes);
-app.use('/api/forecast', forecastRoutes);
-app.use('/api/alerts', alertRoutes);
-app.use('/api', importExportRoutes);
 app.use('/api/promotions', promotionRoutes);
 app.use('/api/channel-forecast', channelForecastRoutes);
 

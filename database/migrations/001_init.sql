@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS products (
     description TEXT,
     category VARCHAR(100),
     unit_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
-    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     threshold INTEGER NOT NULL,
     is_active BOOLEAN DEFAULT true,
-    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(product_id)
 );

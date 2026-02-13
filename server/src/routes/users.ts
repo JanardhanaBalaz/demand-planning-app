@@ -29,7 +29,7 @@ router.patch('/:id/role', async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
-    if (parseInt(id) === req.user!.id) {
+    if (parseInt(id as string) === req.user!.id) {
       res.status(400).json({ message: 'Cannot change your own role' });
       return;
     }
@@ -82,7 +82,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
   try {
     const { id } = req.params;
 
-    if (parseInt(id) === req.user!.id) {
+    if (parseInt(id as string) === req.user!.id) {
       res.status(400).json({ message: 'Cannot delete yourself' });
       return;
     }

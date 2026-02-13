@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { Calendar, dateFnsLocalizer, type SlotInfo, type Event } from 'react-big-calendar'
 import { format, parse, startOfWeek, getDay } from 'date-fns'
-import enUS from 'date-fns/locale/en-US'
+import { enUS } from 'date-fns/locale/en-US'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { promotionsApi, type Promotion } from '../services/api'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
