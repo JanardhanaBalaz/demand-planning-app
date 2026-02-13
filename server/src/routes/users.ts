@@ -10,7 +10,7 @@ router.use(requireRole('admin'));
 router.get('/', async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const result = await query(
-      'SELECT id, email, name, role, assigned_channels as "assignedChannels", created_at as "createdAt" FROM users ORDER BY created_at DESC'
+      'SELECT user_id as id, email, full_name as name, role, assigned_channels as "assignedChannels", created_at as "createdAt" FROM users ORDER BY created_at DESC'
     );
     res.json(result.rows);
   } catch (error) {
@@ -35,7 +35,7 @@ router.patch('/:id/role', async (req: AuthRequest, res: Response): Promise<void>
     }
 
     const result = await query(
-      'UPDATE users SET role = $1 WHERE id = $2 RETURNING id, email, name, role, assigned_channels as "assignedChannels"',
+      'UPDATE users SET role = $1 WHERE user_id = $2 RETURNING user_id as id, email, full_name as name, role, assigned_channels as "assignedChannels"',
       [role, id]
     );
 
@@ -62,7 +62,7 @@ router.patch('/:id/channels', async (req: AuthRequest, res: Response): Promise<v
     }
 
     const result = await query(
-      'UPDATE users SET assigned_channels = $1 WHERE id = $2 RETURNING id, email, name, role, assigned_channels as "assignedChannels"',
+      'UPDATE users SET assigned_channels = $1 WHERE user_id = $2 RETURNING user_id as id, email, full_name as name, role, assigned_channels as "assignedChannels"',
       [assigned_channels, id]
     );
 
@@ -87,7 +87,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
       return;
     }
 
-    const result = await query('DELETE FROM users WHERE id = $1 RETURNING id', [id]);
+    const result = await query('DELETE FROM users WHERE user_id = $1 RETURNING user_id as id', [id]);
 
     if (result.rows.length === 0) {
       res.status(404).json({ message: 'User not found' });

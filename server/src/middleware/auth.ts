@@ -28,7 +28,7 @@ export const authenticate = async (
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: number };
 
     const result = await query(
-      'SELECT id, email, name, role, assigned_channels FROM users WHERE id = $1',
+      'SELECT user_id as id, email, full_name as name, role, assigned_channels FROM users WHERE user_id = $1',
       [decoded.userId]
     );
 

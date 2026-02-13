@@ -282,13 +282,14 @@ router.post('/save-forecasts', async (req: AuthRequest, res: Response): Promise<
     for (const forecast of forecasts) {
       await query(
         `INSERT INTO demand_forecasts
-         (channel_group, country_bucket, sku, forecast_month, forecast_units, created_by, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())
-         ON CONFLICT (channel_group, country_bucket, sku, forecast_month)
+         (channel, channel_group, country_bucket, sku, forecast_month, forecast_units, created_by, created_at, updated_by, updated_at)
+         VALUES ($1, $1, $2, $3, $4, $5, $6, NOW(), $6, NOW())
+         ON CONFLICT (sku, country_bucket, channel, forecast_month)
          DO UPDATE SET
            forecast_units = EXCLUDED.forecast_units,
-           created_by = EXCLUDED.created_by,
-           created_at = NOW()`,
+           channel_group = EXCLUDED.channel_group,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = NOW()`,
         [channelGroup, countryBucket, forecast.sku, forecast.forecastMonth, forecast.forecastUnits || 0, req.user!.id]
       );
       insertedCount++;

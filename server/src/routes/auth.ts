@@ -30,7 +30,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
+    const existing = await query('SELECT user_id FROM users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
       res.status(400).json({ message: 'Email already registered' });
       return;
@@ -43,7 +43,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const role = parseInt(countResult.rows[0].count) === 0 ? 'admin' : 'viewer';
 
     const result = await query(
-      'INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4) RETURNING id, email, name, role, assigned_channels',
+      'INSERT INTO users (email, password_hash, full_name, role) VALUES ($1, $2, $3, $4) RETURNING user_id as id, email, full_name as name, role, assigned_channels',
       [email, passwordHash, name, role]
     );
 
@@ -67,7 +67,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     const result = await query(
-      'SELECT id, email, name, role, password_hash, assigned_channels FROM users WHERE email = $1',
+      'SELECT user_id as id, email, full_name as name, role, password_hash, assigned_channels FROM users WHERE email = $1',
       [email]
     );
 
@@ -151,7 +151,7 @@ router.post('/google/callback', async (req: Request, res: Response): Promise<voi
 
     // Check if user exists
     let result = await query(
-      'SELECT id, email, name, role, assigned_channels FROM users WHERE email = $1',
+      'SELECT user_id as id, email, full_name as name, role, assigned_channels FROM users WHERE email = $1',
       [email]
     );
 
@@ -162,14 +162,14 @@ router.post('/google/callback', async (req: Request, res: Response): Promise<voi
       const role = parseInt(countResult.rows[0].count) === 0 ? 'admin' : 'viewer';
 
       result = await query(
-        'INSERT INTO users (email, password_hash, name, role, google_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role, assigned_channels',
+        'INSERT INTO users (email, password_hash, full_name, role, google_id) VALUES ($1, $2, $3, $4, $5) RETURNING user_id as id, email, full_name as name, role, assigned_channels',
         [email, '', name || email.split('@')[0], role, googleId]
       );
       user = result.rows[0];
     } else {
       user = result.rows[0];
       // Update google_id if not set
-      await query('UPDATE users SET google_id = $1 WHERE id = $2 AND google_id IS NULL', [googleId, user.id]);
+      await query('UPDATE users SET google_id = $1 WHERE user_id = $2 AND google_id IS NULL', [googleId, user.id]);
     }
 
     const token = generateToken(user.id);
