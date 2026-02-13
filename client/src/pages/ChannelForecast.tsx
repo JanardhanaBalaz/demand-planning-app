@@ -102,15 +102,15 @@ function ChannelForecast() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
-  // Load accessible channels on mount
+  // Load channels dynamically from Q19170
   useEffect(() => {
-    channelForecastApi.getChannels()
+    channelForecastApi.discoverChannels()
       .then(res => {
         const ch = res.data.channels || []
         setChannels(ch)
         if (ch.length > 0) setActiveChannel(ch[0])
       })
-      .catch(err => console.error('Failed to load channels:', err))
+      .catch(err => console.error('Failed to discover channels:', err))
   }, [])
 
   // Initialize month configs when baseline or channel changes
@@ -236,7 +236,7 @@ function ChannelForecast() {
         startDate,
         endDate,
         countryBucket,
-        channelGroup: activeChannel,
+        channel: activeChannel,
         ringBasis,
       })
       setBaseline(res.data)
@@ -353,7 +353,16 @@ function ChannelForecast() {
             <button
               key={ch}
               className={`btn ${activeChannel === ch ? 'btn-primary' : 'btn-outline'}`}
-              onClick={() => { setActiveChannel(ch); setBaseline(null) }}
+              onClick={() => {
+                setActiveChannel(ch)
+                setBaseline(null)
+                setStartDate('')
+                setEndDate('')
+                setCountryBucket('India')
+                setRingBasis('activated')
+                setSkuRows([])
+                setMessage('')
+              }}
             >
               {ch}
             </button>
