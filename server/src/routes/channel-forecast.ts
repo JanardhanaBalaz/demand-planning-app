@@ -1,10 +1,7 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { query } from '../models/db.js';
-import { authenticate, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
-
-router.use(authenticate);
 
 const CHANNEL_GROUPS: Record<string, string[]> = {
   'B2C': ['B2C', 'B2C - With Charger', 'B2C - Without Charger', 'D2C', 'D2C - With Charger', 'D2C - Without Charger'],
@@ -51,22 +48,13 @@ async function fetchQ19170(startDate: string, endDate: string): Promise<unknown[
   });
 }
 
-// GET /channels - Returns channel groups accessible to current user
-router.get('/channels', (req: AuthRequest, res: Response): void => {
-  const user = req.user!;
-  const allGroups = Object.keys(CHANNEL_GROUPS);
-
-  if (user.role === 'admin' || !user.assigned_channels || user.assigned_channels.length === 0) {
-    res.json({ channels: allGroups });
-    return;
-  }
-
-  const accessible = allGroups.filter(g => user.assigned_channels!.includes(g));
-  res.json({ channels: accessible });
+// GET /channels - Returns all channel groups
+router.get('/channels', (_req: Request, res: Response): void => {
+  res.json({ channels: Object.keys(CHANNEL_GROUPS) });
 });
 
 // POST /baseline - Query Metabase Q19170 live with date range, region, ring basis
-router.post('/baseline', async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/baseline', async (req: Request, res: Response): Promise<void> => {
   try {
     const { startDate, endDate, countryBucket, channelGroup, ringBasis } = req.body;
 
@@ -142,7 +130,7 @@ router.post('/baseline', async (req: AuthRequest, res: Response): Promise<void> 
 });
 
 // GET /settings - Retrieve saved forecast settings for a channel+region
-router.get('/settings', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/settings', async (req: Request, res: Response): Promise<void> => {
   try {
     const { channelGroup, countryBucket } = req.query;
 
@@ -185,7 +173,7 @@ router.get('/settings', async (req: AuthRequest, res: Response): Promise<void> =
 });
 
 // PUT /settings - Save lift%, growth%, distribution method for 12 months
-router.put('/settings', async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/settings', async (req: Request, res: Response): Promise<void> => {
   try {
     const { channelGroup, countryBucket, months } = req.body;
 
@@ -216,7 +204,7 @@ router.put('/settings', async (req: AuthRequest, res: Response): Promise<void> =
           month.baselineDrr || 0, month.liftPct || 0, month.momGrowthPct || 0,
           month.distributionMethod || 'historical',
           month.baselineStartDate || null, month.baselineEndDate || null,
-          month.ringBasis || 'activated', req.user!.id,
+          month.ringBasis || 'activated', null,
         ]
       );
     }
@@ -229,7 +217,7 @@ router.put('/settings', async (req: AuthRequest, res: Response): Promise<void> =
 });
 
 // PUT /sku-distribution - Save SKU weight overrides
-router.put('/sku-distribution', async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/sku-distribution', async (req: Request, res: Response): Promise<void> => {
   try {
     const { channelGroup, countryBucket, skus } = req.body;
 
@@ -255,7 +243,7 @@ router.put('/sku-distribution', async (req: AuthRequest, res: Response): Promise
           sku.autoWeightPct || 0,
           sku.manualWeightPct !== undefined && sku.manualWeightPct !== null ? sku.manualWeightPct : null,
           sku.isOverride || false,
-          req.user!.id,
+          null,
         ]
       );
     }
@@ -268,7 +256,7 @@ router.put('/sku-distribution', async (req: AuthRequest, res: Response): Promise
 });
 
 // POST /save-forecasts - Materialize forecasts into demand_forecasts table
-router.post('/save-forecasts', async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/save-forecasts', async (req: Request, res: Response): Promise<void> => {
   try {
     const { channelGroup, countryBucket, forecasts } = req.body;
 
@@ -290,7 +278,7 @@ router.post('/save-forecasts', async (req: AuthRequest, res: Response): Promise<
            channel_group = EXCLUDED.channel_group,
            updated_by = EXCLUDED.updated_by,
            updated_at = NOW()`,
-        [channelGroup, countryBucket, forecast.sku, forecast.forecastMonth, forecast.forecastUnits || 0, req.user!.id]
+        [channelGroup, countryBucket, forecast.sku, forecast.forecastMonth, forecast.forecastUnits || 0, null]
       );
       insertedCount++;
     }

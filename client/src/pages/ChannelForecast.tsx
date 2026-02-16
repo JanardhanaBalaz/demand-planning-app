@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useAuth } from '../context/AuthContext'
 import { channelForecastApi } from '../services/api'
 
 interface SKUBreakdown {
@@ -75,8 +74,6 @@ function getNext12Months(): { forecastMonth: string; label: string; daysInMonth:
 }
 
 function ChannelForecast() {
-  const { user } = useAuth()
-
   // Channel tabs
   const [channels, setChannels] = useState<string[]>([])
   const [activeChannel, setActiveChannel] = useState('')
@@ -337,8 +334,6 @@ function ChannelForecast() {
       setSaving(false)
     }
   }
-
-  if (!user) return null
 
   return (
     <div className="channel-forecast-page">
