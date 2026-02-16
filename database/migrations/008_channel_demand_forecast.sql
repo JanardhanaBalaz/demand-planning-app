@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS channel_forecast_settings (
     baseline_start_date DATE,
     baseline_end_date DATE,
     ring_basis VARCHAR(20) DEFAULT 'activated',
-    updated_by INT REFERENCES users(user_id),
+    updated_by INT REFERENCES users(id),
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE (channel_group, country_bucket, forecast_month)
 );
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS channel_sku_distribution (
     auto_weight_pct NUMERIC(8,4) DEFAULT 0,
     manual_weight_pct NUMERIC(8,4),
     is_override BOOLEAN DEFAULT FALSE,
-    updated_by INT REFERENCES users(user_id),
+    updated_by INT REFERENCES users(id),
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE (channel_group, country_bucket, sku)
 );
