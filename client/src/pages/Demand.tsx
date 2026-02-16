@@ -2,7 +2,6 @@ import { useState, useEffect, FormEvent } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import Modal from '../components/Modal'
 import { demandApi, productsApi } from '../services/api'
-import { useAuth } from '../context/AuthContext'
 
 interface DemandRecord {
   id: number
@@ -25,7 +24,6 @@ interface ChartData {
 }
 
 function Demand() {
-  const { user } = useAuth()
   const [demandRecords, setDemandRecords] = useState<DemandRecord[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,7 +43,7 @@ function Demand() {
   const [chartData, setChartData] = useState<ChartData[]>([])
   const [selectedProductForChart, setSelectedProductForChart] = useState<string>('')
 
-  const canEdit = user?.role === 'admin' || user?.role === 'analyst'
+  const canEdit = true
 
   useEffect(() => {
     loadData()

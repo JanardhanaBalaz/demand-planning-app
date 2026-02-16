@@ -1,7 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react'
 import Modal from '../components/Modal'
 import { productsApi } from '../services/api'
-import { useAuth } from '../context/AuthContext'
 
 interface Product {
   id: number
@@ -14,7 +13,6 @@ interface Product {
 }
 
 function Products() {
-  const { user } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -28,7 +26,7 @@ function Products() {
     unitPrice: '',
   })
 
-  const canEdit = user?.role === 'admin' || user?.role === 'analyst'
+  const canEdit = true
 
   useEffect(() => {
     loadProducts()

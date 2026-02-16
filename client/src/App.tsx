@@ -1,9 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from './context/AuthContext'
+import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
-import Login from './pages/Login'
-import Register from './pages/Register'
-import GoogleCallback from './pages/GoogleCallback'
 import Dashboard from './pages/Dashboard'
 import Products from './pages/Products'
 import Inventory from './pages/Inventory'
@@ -14,50 +10,10 @@ import Users from './pages/Users'
 import PromotionCalendar from './pages/PromotionCalendar'
 import ChannelForecast from './pages/ChannelForecast'
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth()
-
-  if (loading) {
-    return <div className="loading">Loading...</div>
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace />
-  }
-
-  return <>{children}</>
-}
-
-function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth()
-
-  if (loading) {
-    return <div className="loading">Loading...</div>
-  }
-
-  if (!user || user.role !== 'admin') {
-    return <Navigate to="/" replace />
-  }
-
-  return <>{children}</>
-}
-
 function App() {
-  const { user } = useAuth()
-
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
-      <Route path="/register" element={user ? <Navigate to="/" replace /> : <Register />} />
-      <Route path="/auth/google/callback" element={<GoogleCallback />} />
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
-        }
-      >
+      <Route path="/" element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="products" element={<Products />} />
         <Route path="inventory" element={<Inventory />} />
@@ -66,14 +22,7 @@ function App() {
         <Route path="promotion-calendar" element={<PromotionCalendar />} />
         <Route path="channel-forecast" element={<ChannelForecast />} />
         <Route path="import" element={<Import />} />
-        <Route
-          path="users"
-          element={
-            <AdminRoute>
-              <Users />
-            </AdminRoute>
-          }
-        />
+        <Route path="users" element={<Users />} />
       </Route>
     </Routes>
   )

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { usersApi } from '../services/api'
-import { useAuth } from '../context/AuthContext'
 
 interface User {
   id: number
@@ -11,7 +10,6 @@ interface User {
 }
 
 function Users() {
-  const { user: currentUser } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -92,18 +90,13 @@ function Users() {
             <tbody>
               {users.map((user) => (
                 <tr key={user.id}>
-                  <td>
-                    {user.name}
-                    {user.id === currentUser?.id && (
-                      <span className="badge badge-info" style={{ marginLeft: '0.5rem' }}>You</span>
-                    )}
-                  </td>
+                  <td>{user.name}</td>
                   <td>{user.email}</td>
                   <td>
                     <select
                       value={user.role}
                       onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                      disabled={user.id === currentUser?.id}
+                      disabled={false}
                       className="role-select"
                     >
                       <option value="admin">Admin</option>
@@ -117,7 +110,7 @@ function Users() {
                       className="btn btn-danger"
                       style={{ padding: '0.25rem 0.75rem' }}
                       onClick={() => handleDelete(user.id)}
-                      disabled={user.id === currentUser?.id}
+                      disabled={false}
                     >
                       Delete
                     </button>

@@ -1,11 +1,9 @@
 import { useState, useRef, DragEvent } from 'react'
 import { importExportApi } from '../services/api'
-import { useAuth } from '../context/AuthContext'
 
 type ImportType = 'products' | 'demand'
 
 function Import() {
-  const { user } = useAuth()
   const [importType, setImportType] = useState<ImportType>('products')
   const [file, setFile] = useState<File | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -13,7 +11,7 @@ function Import() {
   const [result, setResult] = useState<{ success: boolean; message: string; details?: string[] } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const canEdit = user?.role === 'admin' || user?.role === 'analyst'
+  const canEdit = true
 
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault()

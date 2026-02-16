@@ -1,16 +1,7 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { Outlet, NavLink } from 'react-router-dom'
 import './Layout.css'
 
 function Layout() {
-  const { user, logout } = useAuth()
-  const navigate = useNavigate()
-
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
-  }
-
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -42,21 +33,10 @@ function Layout() {
           <NavLink to="/import" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Import/Export
           </NavLink>
-          {user?.role === 'admin' && (
-            <NavLink to="/users" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-              Users
-            </NavLink>
-          )}
+          <NavLink to="/users" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            Users
+          </NavLink>
         </nav>
-        <div className="sidebar-footer">
-          <div className="user-info">
-            <span className="user-name">{user?.name}</span>
-            <span className="user-role">{user?.role}</span>
-          </div>
-          <button onClick={handleLogout} className="btn btn-outline logout-btn">
-            Logout
-          </button>
-        </div>
       </aside>
       <main className="main-content">
         <Outlet />

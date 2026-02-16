@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { forecastApi, productsApi, demandApi } from '../services/api'
-import { useAuth } from '../context/AuthContext'
 
 interface Product {
   id: number
@@ -25,7 +24,6 @@ interface ChartData {
 }
 
 function Forecasts() {
-  const { user } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [selectedProduct, setSelectedProduct] = useState<string>('')
   const [forecasts, setForecasts] = useState<ForecastData[]>([])
@@ -35,7 +33,7 @@ function Forecasts() {
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
 
-  const canEdit = user?.role === 'admin' || user?.role === 'analyst'
+  const canEdit = true
 
   useEffect(() => {
     loadProducts()

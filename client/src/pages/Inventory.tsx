@@ -1,7 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react'
 import Modal from '../components/Modal'
 import { inventoryApi, alertsApi, productsApi } from '../services/api'
-import { useAuth } from '../context/AuthContext'
 
 interface InventoryItem {
   id: number
@@ -30,7 +29,6 @@ interface Product {
 }
 
 function Inventory() {
-  const { user } = useAuth()
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -43,7 +41,7 @@ function Inventory() {
   const [alertForm, setAlertForm] = useState({ productId: '', threshold: '' })
   const [error, setError] = useState('')
 
-  const canEdit = user?.role === 'admin' || user?.role === 'analyst'
+  const canEdit = true
 
   useEffect(() => {
     loadData()
