@@ -385,4 +385,14 @@ router.put('/optimal-doc', async (req: Request, res: Response): Promise<void> =>
   }
 });
 
+// Temporary debug endpoint — remove after diagnosing Metabase 401
+router.get('/debug-env', (_req: Request, res: Response) => {
+  res.json({
+    metabaseUrl: METABASE_URL,
+    apiKeyLength: METABASE_API_KEY.length,
+    apiKeyPrefix: METABASE_API_KEY.slice(0, 4),
+    apiKeySuffix: METABASE_API_KEY.slice(-4),
+  });
+});
+
 export default router;
