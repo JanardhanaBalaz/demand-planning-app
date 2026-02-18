@@ -106,7 +106,7 @@ router.post('/baseline', async (req: Request, res: Response): Promise<void> => {
 
     // Aggregate total rings and per-SKU breakdown
     let totalRings = 0;
-    const skuMap: Record<string, number> = {};
+    let skuMap: Record<string, number> = {};
 
     for (const row of filtered) {
       const rings = Number(row['RING_COUNT'] || 0);
@@ -114,6 +114,31 @@ router.post('/baseline', async (req: Request, res: Response): Promise<void> => {
 
       totalRings += rings;
       skuMap[sku] = (skuMap[sku] || 0) + rings;
+    }
+
+    // Retail fallback: if a region has zero data, use ROW's data
+    let fallbackRegion: string | null = null;
+    if (channelGroup === 'Retail' && totalRings === 0 && countryBucket.toUpperCase() !== 'ROW') {
+      console.log(`No data for Retail/${countryBucket}, falling back to ROW`);
+      fallbackRegion = 'ROW';
+
+      const rowFiltered = rows.filter((row) => {
+        const rowChannel = String(row['CHANNEL'] || '');
+        const channelMatch = channelValues.some(ch => rowChannel.toLowerCase() === ch.toLowerCase());
+        if (!channelMatch) return false;
+        const rowCountry = String(row['NEW_COUNTRY_BUCKET'] || '');
+        return rowCountry.toUpperCase() === 'ROW';
+      });
+
+      totalRings = 0;
+      skuMap = {};
+      for (const row of rowFiltered) {
+        const rings = Number(row['RING_COUNT'] || 0);
+        const sku = String(row['SKU'] || 'Unknown');
+        totalRings += rings;
+        skuMap[sku] = (skuMap[sku] || 0) + rings;
+      }
+      console.log(`ROW fallback: ${rowFiltered.length} rows, ${totalRings} rings`);
     }
 
     const baselineDrr = totalRings / days;
@@ -133,6 +158,7 @@ router.post('/baseline', async (req: Request, res: Response): Promise<void> => {
       days,
       channelGroup,
       countryBucket,
+      fallbackRegion,
       ringBasis: ringBasis || 'activated',
       startDate,
       endDate,
