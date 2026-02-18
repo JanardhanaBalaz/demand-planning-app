@@ -10,13 +10,14 @@ const METABASE_API_KEY = process.env.METABASE_API_KEY || '';
 const WABI_SABI_PREFIXES = ['WA', 'WG', 'WM', 'WR', 'WS', 'WT'];
 
 // Map location names (as they appear in the inventory sheet) to the countries they serve
+// '*' means all countries (global demand)
 const LOCATION_GEOGRAPHY: Record<string, string[]> = {
   // Warehouses
-  'IQF+ AD': ['INDIA'],
-  'BBMS': ['INDIA'],
-  'Blr': ['INDIA'],
+  'IQF+ AD': ['UNITED ARAB EMIRATES'],
+  'BBMS': ['UNITED STATES'],
+  'Blr': ['*'],
   'NL- WH': ['EUROPE UNION'],
-  'SVT': ['INDIA'],
+  'SVT': ['UNITED STATES'],
   'UK -WH': ['UNITED KINGDOM'],
   // FBAs
   'AUS-FBA': ['AUSTRALIA'],
@@ -242,7 +243,10 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
 
         let locationRings = 0;
 
-        if (countries.includes('THAILAND') && (location === 'Shoppee' || location === 'Lazada')) {
+        if (countries.includes('*')) {
+          // Global — serves all countries (e.g. Bangalore)
+          locationRings = Object.values(countryRings).reduce((s, v) => s + v, 0);
+        } else if (countries.includes('THAILAND') && (location === 'Shoppee' || location === 'Lazada')) {
           // Split Thailand demand proportionally to stock
           const ratio = thaiTotal > 0
             ? (location === 'Shoppee' ? shoppeeTotal : lazadaTotal) / thaiTotal
