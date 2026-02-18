@@ -56,16 +56,19 @@ interface SavedSKU {
 }
 
 const COUNTRY_BUCKETS = [
+  'INDIA',
   'UNITED STATES',
-  'CANADA',
   'EUROPE UNION',
   'UNITED KINGDOM',
-  'AUSTRALIA',
-  'INDIA',
   'UNITED ARAB EMIRATES',
-  'SINGAPORE',
+  'AUSTRALIA',
+  'CANADA',
+  'GERMANY',
+  'NETHERLANDS',
+  'FRANCE',
   'JAPAN',
   'SAUDI ARABIA',
+  'SINGAPORE',
   'ROW',
 ]
 
