@@ -140,6 +140,10 @@ export const stockAnalysisApi = {
   getData: () => api.get('/stock-analysis'),
 }
 
+export const replenishmentPlanApi = {
+  getData: (targetDays?: number) => api.get('/replenishment-plan', { params: { targetDays } }),
+}
+
 export const ruleEngineApi = {
   getRules: () => api.get('/rule-engine'),
   syncFromSheet: () => api.post('/rule-engine/sync'),

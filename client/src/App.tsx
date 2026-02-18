@@ -13,6 +13,7 @@ import ForecastSummary from './pages/ForecastSummary'
 import GlobalInventory from './pages/GlobalInventory'
 import StockAnalysis from './pages/StockAnalysis'
 import RuleEngine from './pages/RuleEngine'
+import ReplenishmentPlan from './pages/ReplenishmentPlan'
 
 function App() {
   return (
@@ -29,6 +30,7 @@ function App() {
         <Route path="global-inventory" element={<GlobalInventory />} />
         <Route path="stock-analysis" element={<StockAnalysis />} />
         <Route path="rule-engine" element={<RuleEngine />} />
+        <Route path="replenishment-plan" element={<ReplenishmentPlan />} />
         <Route path="import" element={<Import />} />
         <Route path="users" element={<Users />} />
       </Route>

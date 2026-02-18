@@ -39,6 +39,9 @@ function Layout() {
           <NavLink to="/stock-analysis" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Stock Analysis
           </NavLink>
+          <NavLink to="/replenishment-plan" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            FBA Replenishment
+          </NavLink>
           <NavLink to="/rule-engine" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Rule Engine
           </NavLink>
