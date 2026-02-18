@@ -23,29 +23,26 @@ interface Summary {
 const STATUS_CONFIG = {
   critical: { label: 'Critical', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
   understock: { label: 'Understock', color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
-  balanced: { label: 'Balanced', color: '#059669', bg: '#ecfdf5', border: '#a7f3d0' },
+  balanced: { label: 'Balanced', color: '#059669', bg: '#f0fdf4', border: '#a7f3d0' },
   overstock: { label: 'Overstock', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
-}
-
-const CHANNEL_COLORS: Record<string, string> = {
-  'B2C': '#059669',
-  'Replacement': '#d97706',
-  'Retail': '#2563eb',
-  'Marketplace': '#db2777',
 }
 
 const TYPE_ORDER = ['Ring Air', 'Diesel Collaborated', 'Wabi Sabi', 'Other']
 
+type SortKey = 'sku' | 'totalStock' | 'dailyDemand' | 'daysOfCover' | 'status' | string
+type SortDir = 'asc' | 'desc'
+
 function StockAnalysis() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [skus, setSkus] = useState<SkuAnalysis[]>([])
-  const [, setLocations] = useState<string[]>([])
+  const [locations, setLocations] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [expandedSKUs, setExpandedSKUs] = useState<Record<string, boolean>>({})
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterType, setFilterType] = useState<string>('all')
-  const [collapsedTypes, setCollapsedTypes] = useState<Record<string, boolean>>({})
+  const [searchTerm, setSearchTerm] = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('daysOfCover')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   useEffect(() => {
     stockAnalysisApi.getData()
@@ -62,43 +59,53 @@ function StockAnalysis() {
       .finally(() => setLoading(false))
   }, [])
 
-  const toggleExpand = (sku: string) => {
-    setExpandedSKUs(prev => ({ ...prev, [sku]: !prev[sku] }))
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
   }
 
-  const toggleType = (type: string) => {
-    setCollapsedTypes(prev => ({ ...prev, [type]: !prev[type] }))
+  const sortIndicator = (key: SortKey) => {
+    if (sortKey !== key) return ' \u2195'
+    return sortDir === 'asc' ? ' \u2191' : ' \u2193'
   }
 
-  // Filter SKUs
   const filtered = useMemo(() => {
-    return skus.filter(s => {
+    let result = skus.filter(s => {
       if (filterStatus !== 'all' && s.status !== filterStatus) return false
       if (filterType !== 'all' && s.ringType !== filterType) return false
+      if (searchTerm && !s.sku.toLowerCase().includes(searchTerm.toLowerCase())) return false
       return true
     })
-  }, [skus, filterStatus, filterType])
 
-  // Group by ring type
-  const grouped = useMemo(() => {
-    const groups: { type: 'header' | 'sku'; label: string; sku?: SkuAnalysis; typeName?: string }[] = []
+    const statusOrder = { critical: 0, understock: 1, balanced: 2, overstock: 3 }
 
-    for (const type of TYPE_ORDER) {
-      const typeSkus = filtered.filter(s => s.ringType === type)
-      if (typeSkus.length === 0) continue
-
-      // Category summary
-      const totalStock = typeSkus.reduce((s, sk) => s + sk.totalStock, 0)
-      const totalDemand = typeSkus.reduce((s, sk) => s + sk.dailyDemand, 0)
-      const avgDays = totalDemand > 0 ? Math.round(totalStock / totalDemand) : 9999
-
-      groups.push({ type: 'header', label: `${type} (${typeSkus.length} SKUs \u00B7 Stock: ${totalStock.toLocaleString()} \u00B7 ${avgDays} days avg)`, typeName: type })
-      for (const sku of typeSkus) {
-        groups.push({ type: 'sku', label: sku.sku, sku, typeName: type })
+    result.sort((a, b) => {
+      let cmp = 0
+      if (sortKey === 'sku') {
+        cmp = a.sku.localeCompare(b.sku)
+      } else if (sortKey === 'totalStock') {
+        cmp = a.totalStock - b.totalStock
+      } else if (sortKey === 'dailyDemand') {
+        cmp = a.dailyDemand - b.dailyDemand
+      } else if (sortKey === 'daysOfCover') {
+        cmp = a.daysOfCover - b.daysOfCover
+      } else if (sortKey === 'status') {
+        cmp = statusOrder[a.status] - statusOrder[b.status]
+      } else {
+        // Warehouse column sort
+        const aVal = a.warehouseStock[sortKey] || 0
+        const bVal = b.warehouseStock[sortKey] || 0
+        cmp = aVal - bVal
       }
-    }
-    return groups
-  }, [filtered])
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+
+    return result
+  }, [skus, filterStatus, filterType, searchTerm, sortKey, sortDir])
 
   if (loading) {
     return <div className="stock-analysis-page"><p>Analyzing stock levels per SKU...</p></div>
@@ -117,7 +124,7 @@ function StockAnalysis() {
       <div className="page-header" style={{ marginBottom: '1.5rem' }}>
         <h1 className="page-title" style={{ margin: 0 }}>Stock Analysis</h1>
         <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
-          SKU-level overstock / understock &middot; 30-day demand coverage &middot; {summary.totalSKUs} SKUs
+          SKU-level stock by warehouse &middot; 30-day demand coverage &middot; {summary.totalSKUs} SKUs
         </span>
       </div>
 
@@ -157,7 +164,7 @@ function StockAnalysis() {
       </div>
 
       {/* Filter bar */}
-      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <select
           value={filterType}
           onChange={e => setFilterType(e.target.value)}
@@ -166,9 +173,24 @@ function StockAnalysis() {
           <option value="all">All Ring Types</option>
           {TYPE_ORDER.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        {(filterStatus !== 'all' || filterType !== 'all') && (
+        <select
+          value={filterStatus}
+          onChange={e => setFilterStatus(e.target.value)}
+          style={{ padding: '0.35rem 0.5rem', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem' }}
+        >
+          <option value="all">All Statuses</option>
+          {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <input
+          type="text"
+          placeholder="Search SKU..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          style={{ padding: '0.35rem 0.5rem', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem', width: '140px' }}
+        />
+        {(filterStatus !== 'all' || filterType !== 'all' || searchTerm) && (
           <button
-            onClick={() => { setFilterStatus('all'); setFilterType('all') }}
+            onClick={() => { setFilterStatus('all'); setFilterType('all'); setSearchTerm('') }}
             style={{ padding: '0.35rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', background: '#fff', color: '#6b7280' }}
           >
             Clear filters
@@ -179,109 +201,62 @@ function StockAnalysis() {
         </span>
       </div>
 
-      {/* SKU table */}
-      <div className="card" style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', minWidth: '750px' }}>
-          <thead>
-            <tr>
-              <th style={{ minWidth: '80px', textAlign: 'left' }}>SKU</th>
-              <th style={{ textAlign: 'center', minWidth: '90px' }}>Total Stock</th>
-              <th style={{ textAlign: 'center', minWidth: '90px' }}>Daily Demand</th>
-              <th style={{ textAlign: 'center', minWidth: '100px' }}>Days of Cover</th>
-              <th style={{ textAlign: 'center', minWidth: '90px' }}>Status</th>
-              <th style={{ minWidth: '200px' }}>Demand by Channel</th>
-            </tr>
-          </thead>
-          <tbody>
-            {grouped.map((item) => {
-              if (item.type === 'header') {
-                const collapsed = collapsedTypes[item.typeName!]
+      {/* SKU x Warehouse matrix table */}
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="stock-matrix">
+            <thead>
+              <tr>
+                <th className="sticky-col col-sku" onClick={() => handleSort('sku')} style={{ cursor: 'pointer' }}>
+                  SKU{sortIndicator('sku')}
+                </th>
+                <th className="sticky-col col-total" onClick={() => handleSort('totalStock')} style={{ cursor: 'pointer', textAlign: 'right' }}>
+                  Total{sortIndicator('totalStock')}
+                </th>
+                <th className="sticky-col col-drr" onClick={() => handleSort('dailyDemand')} style={{ cursor: 'pointer', textAlign: 'right' }}>
+                  DRR{sortIndicator('dailyDemand')}
+                </th>
+                <th className="sticky-col col-doc" onClick={() => handleSort('daysOfCover')} style={{ cursor: 'pointer', textAlign: 'right' }}>
+                  DOC{sortIndicator('daysOfCover')}
+                </th>
+                <th className="sticky-col col-status" onClick={() => handleSort('status')} style={{ cursor: 'pointer', textAlign: 'center' }}>
+                  Status{sortIndicator('status')}
+                </th>
+                {locations.map(loc => (
+                  <th
+                    key={loc}
+                    className="wh-col"
+                    onClick={() => handleSort(loc)}
+                    style={{ cursor: 'pointer', textAlign: 'right' }}
+                  >
+                    {loc}{sortIndicator(loc)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(sku => {
+                const config = STATUS_CONFIG[sku.status]
                 return (
-                  <tr
-                    key={`header-${item.typeName}`}
-                    style={{ background: 'var(--surface-alt, #f0f4f8)', cursor: 'pointer' }}
-                    onClick={() => toggleType(item.typeName!)}
-                  >
-                    <td colSpan={6} style={{
-                      fontWeight: 700,
-                      fontSize: '0.85rem',
-                      padding: '0.6rem 0.5rem',
-                      userSelect: 'none',
-                    }}>
-                      <span style={{ display: 'inline-block', width: '1.2rem', fontSize: '0.75rem' }}>
-                        {collapsed ? '\u25B6' : '\u25BC'}
-                      </span>
-                      {item.label}
+                  <tr key={sku.sku} style={{ background: config.bg }}>
+                    <td className="sticky-col col-sku" style={{ fontWeight: 600, background: config.bg, borderLeft: `3px solid ${config.color}` }}>
+                      {sku.sku}
                     </td>
-                  </tr>
-                )
-              }
-
-              if (collapsedTypes[item.typeName!]) return null
-              const sku = item.sku!
-              const config = STATUS_CONFIG[sku.status]
-              const isExpanded = expandedSKUs[sku.sku]
-
-              // Days of cover bar
-              const barWidth = Math.min(100, (sku.daysOfCover / 90) * 100)
-
-              return (
-                <tbody key={sku.sku}>
-                  <tr
-                    style={{
-                      cursor: 'pointer',
-                      background: config.bg,
-                      transition: 'background 0.15s ease',
-                    }}
-                    className="sku-row"
-                    onClick={() => toggleExpand(sku.sku)}
-                  >
-                    <td style={{
-                      fontWeight: 600,
-                      fontSize: '0.85rem',
-                      borderLeft: `3px solid ${config.color}`,
-                      paddingLeft: '1rem',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <span style={{ fontSize: '0.6rem', color: '#9ca3af' }}>
-                          {isExpanded ? '\u25BC' : '\u25B6'}
-                        </span>
-                        {sku.sku}
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'center', fontWeight: 600, fontSize: '0.9rem' }}>
+                    <td className="sticky-col col-total" style={{ textAlign: 'right', fontWeight: 600, background: config.bg }}>
                       {sku.totalStock.toLocaleString()}
                     </td>
-                    <td style={{ textAlign: 'center', fontSize: '0.9rem' }}>
+                    <td className="sticky-col col-drr" style={{ textAlign: 'right', background: config.bg }}>
                       {sku.dailyDemand > 0 ? sku.dailyDemand.toFixed(1) : '\u2014'}
                     </td>
-                    <td style={{ textAlign: 'center', padding: '0.4rem 0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', justifyContent: 'center' }}>
-                        <div style={{
-                          width: '50px',
-                          height: '6px',
-                          background: '#e5e7eb',
-                          borderRadius: '3px',
-                          overflow: 'hidden',
-                        }}>
-                          <div style={{
-                            width: `${barWidth}%`,
-                            height: '100%',
-                            background: config.color,
-                            borderRadius: '3px',
-                          }} />
-                        </div>
-                        <span style={{ fontWeight: 700, fontSize: '0.85rem', color: config.color, minWidth: '35px' }}>
-                          {sku.daysOfCover >= 9999 ? '\u221E' : sku.daysOfCover}
-                        </span>
-                      </div>
+                    <td className="sticky-col col-doc" style={{ textAlign: 'right', fontWeight: 700, color: config.color, background: config.bg }}>
+                      {sku.daysOfCover >= 9999 ? '\u221E' : sku.daysOfCover}
                     </td>
-                    <td style={{ textAlign: 'center' }}>
+                    <td className="sticky-col col-status" style={{ textAlign: 'center', background: config.bg }}>
                       <span style={{
                         display: 'inline-block',
-                        padding: '0.15rem 0.5rem',
+                        padding: '0.1rem 0.4rem',
                         borderRadius: '10px',
-                        fontSize: '0.65rem',
+                        fontSize: '0.6rem',
                         fontWeight: 700,
                         color: config.color,
                         background: 'rgba(255,255,255,0.7)',
@@ -290,114 +265,103 @@ function StockAnalysis() {
                         {config.label}
                       </span>
                     </td>
-                    <td>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                        {Object.entries(sku.channelDemand)
-                          .filter(([, v]) => v > 0)
-                          .sort(([, a], [, b]) => b - a)
-                          .map(([ch, drr]) => (
-                            <span key={ch} style={{
-                              fontSize: '0.6rem',
-                              fontWeight: 500,
-                              padding: '0.05rem 0.35rem',
-                              borderRadius: '4px',
-                              background: '#f1f5f9',
-                              color: CHANNEL_COLORS[ch] || '#374151',
-                              whiteSpace: 'nowrap',
-                            }}>
-                              {ch}: {drr}/d
-                            </span>
-                          ))}
-                        {Object.keys(sku.channelDemand).length === 0 && (
-                          <span style={{ fontSize: '0.6rem', color: '#d1d5db', fontStyle: 'italic' }}>No demand</span>
-                        )}
-                      </div>
-                    </td>
+                    {locations.map(loc => {
+                      const qty = sku.warehouseStock[loc] || 0
+                      return (
+                        <td
+                          key={loc}
+                          className="wh-col"
+                          style={{
+                            textAlign: 'right',
+                            color: qty === 0 ? '#d1d5db' : '#374151',
+                            fontWeight: qty > 0 ? 500 : 400,
+                            fontSize: '0.8rem',
+                          }}
+                        >
+                          {qty === 0 ? '\u2014' : qty.toLocaleString()}
+                        </td>
+                      )
+                    })}
                   </tr>
-
-                  {/* Expanded: warehouse stock breakdown */}
-                  {isExpanded && (
-                    <tr style={{ background: '#fafbfc' }}>
-                      <td colSpan={6} style={{ padding: '0.5rem 1rem 0.5rem 2rem', borderLeft: '3px solid #e5e7eb' }}>
-                        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-                          <div>
-                            <div style={{ fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-                              Stock by Warehouse
-                            </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
-                              {Object.entries(sku.warehouseStock)
-                                .filter(([, v]) => v > 0)
-                                .sort(([, a], [, b]) => b - a)
-                                .map(([wh, qty]) => (
-                                  <span key={wh} style={{
-                                    fontSize: '0.7rem',
-                                    padding: '0.15rem 0.5rem',
-                                    borderRadius: '4px',
-                                    background: '#e0f2fe',
-                                    color: '#0369a1',
-                                    fontWeight: 500,
-                                  }}>
-                                    {wh}: {qty}
-                                  </span>
-                                ))}
-                              {Object.keys(sku.warehouseStock).length === 0 && (
-                                <span style={{ fontSize: '0.7rem', color: '#d1d5db' }}>No stock</span>
-                              )}
-                            </div>
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-                              Demand by Channel (DRR)
-                            </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
-                              {Object.entries(sku.channelDemand)
-                                .filter(([, v]) => v > 0)
-                                .sort(([, a], [, b]) => b - a)
-                                .map(([ch, drr]) => (
-                                  <span key={ch} style={{
-                                    fontSize: '0.7rem',
-                                    padding: '0.15rem 0.5rem',
-                                    borderRadius: '4px',
-                                    background: '#fef3c7',
-                                    color: CHANNEL_COLORS[ch] || '#374151',
-                                    fontWeight: 500,
-                                  }}>
-                                    {ch}: {drr}/day
-                                  </span>
-                                ))}
-                              {Object.keys(sku.channelDemand).length === 0 && (
-                                <span style={{ fontSize: '0.7rem', color: '#d1d5db' }}>No demand data</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              )
-            })}
-          </tbody>
-        </table>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <style>{`
-        .stock-analysis-page table {
-          border-collapse: collapse;
+        .stock-analysis-page .stock-matrix {
+          border-collapse: separate;
+          border-spacing: 0;
+          width: max-content;
+          min-width: 100%;
         }
-        .stock-analysis-page th,
-        .stock-analysis-page td {
+        .stock-analysis-page .stock-matrix th,
+        .stock-analysis-page .stock-matrix td {
           padding: 0.35rem 0.5rem;
-          border-bottom: 1px solid var(--border, #eee);
+          border-bottom: 1px solid #e5e7eb;
+          white-space: nowrap;
         }
-        .stock-analysis-page th {
-          font-size: 0.75rem;
-          color: var(--text-secondary, #666);
+        .stock-analysis-page .stock-matrix thead th {
+          font-size: 0.7rem;
+          color: #6b7280;
           font-weight: 600;
-          text-align: left;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          background: #f9fafb;
+          position: sticky;
+          top: 0;
+          z-index: 2;
+          border-bottom: 2px solid #d1d5db;
+          user-select: none;
         }
-        .stock-analysis-page .sku-row:hover {
+        .stock-analysis-page .stock-matrix td {
+          font-size: 0.8rem;
+        }
+        .stock-analysis-page .stock-matrix tbody tr:hover {
           filter: brightness(0.97);
+        }
+
+        /* Sticky left columns */
+        .stock-analysis-page .sticky-col {
+          position: sticky;
+          z-index: 3;
+        }
+        .stock-analysis-page thead .sticky-col {
+          z-index: 4;
+        }
+        .stock-analysis-page .col-sku {
+          left: 0;
+          min-width: 60px;
+        }
+        .stock-analysis-page .col-total {
+          left: 60px;
+          min-width: 60px;
+        }
+        .stock-analysis-page .col-drr {
+          left: 120px;
+          min-width: 55px;
+        }
+        .stock-analysis-page .col-doc {
+          left: 175px;
+          min-width: 50px;
+        }
+        .stock-analysis-page .col-status {
+          left: 225px;
+          min-width: 75px;
+          border-right: 2px solid #d1d5db;
+        }
+        .stock-analysis-page thead .col-sku,
+        .stock-analysis-page thead .col-total,
+        .stock-analysis-page thead .col-drr,
+        .stock-analysis-page thead .col-doc,
+        .stock-analysis-page thead .col-status {
+          background: #f9fafb;
+        }
+
+        .stock-analysis-page .wh-col {
+          min-width: 65px;
         }
       `}</style>
     </div>
