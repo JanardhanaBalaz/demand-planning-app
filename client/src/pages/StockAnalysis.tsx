@@ -4,14 +4,9 @@ import { stockAnalysisApi } from '../services/api'
 interface SkuAnalysis {
   sku: string
   ringType: string
-  totalStock: number
-  dailyDemand: number
-  daysOfCover: number
-  status: 'critical' | 'understock' | 'balanced' | 'overstock'
   warehouseStock: Record<string, number>
   warehouseDRR: Record<string, number>
   warehouseDOC: Record<string, number>
-  channelDemand: Record<string, number>
 }
 
 const STATUS_CONFIG = {

@@ -165,9 +165,10 @@ async function fetchInventory(): Promise<{
 
 // Fetch per-SKU demand from Metabase (last 30 days), with channel×country breakdown
 async function fetchDemandData(): Promise<{
-  perSku: Record<string, { drr: number; totalRings: number; channels: Record<string, number> }>;
+  // sku -> total rings across all channels/countries (for Bangalore global demand)
+  skuTotalRings: Record<string, number>;
   // sku -> "channel::country" -> rings (e.g. "B2C::UNITED STATES" -> 150)
-  perSkuChannelCountry: Record<string, Record<string, number>>;
+  skuChannelCountry: Record<string, Record<string, number>>;
 }> {
   const end = new Date();
   const start = new Date(end.getTime() - 29 * 24 * 60 * 60 * 1000);
@@ -188,9 +189,8 @@ async function fetchDemandData(): Promise<{
 
   if (!resp.ok) throw new Error(`Metabase Q19170 failed: ${resp.status}`);
   const rows = await resp.json() as Record<string, unknown>[];
-  const days = 30;
 
-  const skuRings: Record<string, { total: number; channels: Record<string, number> }> = {};
+  const skuTotalRings: Record<string, number> = {};
   const skuChannelCountry: Record<string, Record<string, number>> = {};
 
   for (const row of rows) {
@@ -201,12 +201,8 @@ async function fetchDemandData(): Promise<{
 
     if (!sku || !channel) continue;
 
-    // Global per-SKU aggregation
-    if (!skuRings[sku]) skuRings[sku] = { total: 0, channels: {} };
-    skuRings[sku].total += rings;
-    skuRings[sku].channels[channel] = (skuRings[sku].channels[channel] || 0) + rings;
+    skuTotalRings[sku] = (skuTotalRings[sku] || 0) + rings;
 
-    // Per-SKU per-channel×country aggregation
     if (country) {
       const key = `${channel}::${country}`;
       if (!skuChannelCountry[sku]) skuChannelCountry[sku] = {};
@@ -214,37 +210,15 @@ async function fetchDemandData(): Promise<{
     }
   }
 
-  // Convert to DRR
-  const perSku: Record<string, { drr: number; totalRings: number; channels: Record<string, number> }> = {};
-  for (const [sku, data] of Object.entries(skuRings)) {
-    const channelDRR: Record<string, number> = {};
-    for (const [ch, rings] of Object.entries(data.channels)) {
-      channelDRR[ch] = rings / days;
-    }
-    perSku[sku] = { drr: data.total / days, totalRings: data.total, channels: channelDRR };
-  }
-
-  return { perSku, perSkuChannelCountry: skuChannelCountry };
+  return { skuTotalRings, skuChannelCountry };
 }
 
 interface SkuAnalysis {
   sku: string;
   ringType: string;
-  totalStock: number;
-  dailyDemand: number;
-  daysOfCover: number;
-  status: 'critical' | 'understock' | 'balanced' | 'overstock';
   warehouseStock: Record<string, number>;
   warehouseDRR: Record<string, number>;
   warehouseDOC: Record<string, number>;
-  channelDemand: Record<string, number>;
-}
-
-function getStatus(days: number): 'critical' | 'understock' | 'balanced' | 'overstock' {
-  if (days < 15) return 'critical';
-  if (days < 30) return 'understock';
-  if (days <= 60) return 'balanced';
-  return 'overstock';
 }
 
 // GET / - SKU-level stock analysis
@@ -270,23 +244,18 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
     // Get all unique SKUs from both inventory and demand
     const allSkus = new Set<string>();
     for (const sku of Object.keys(inventory.skuStock)) allSkus.add(sku);
-    for (const sku of Object.keys(demandData.perSku)) allSkus.add(sku);
+    for (const sku of Object.keys(demandData.skuTotalRings)) allSkus.add(sku);
 
     const skuAnalysis: SkuAnalysis[] = [];
 
     for (const sku of allSkus) {
       const stockMap = inventory.skuStock[sku] || {};
       const totalStock = Object.values(stockMap).reduce((s, v) => s + v, 0);
-      const skuDemand = demandData.perSku[sku] || { drr: 0, totalRings: 0, channels: {} };
-      const dailyDemand = skuDemand.drr;
-      const ccRings = demandData.perSkuChannelCountry[sku] || {};
+      const totalRings = demandData.skuTotalRings[sku] || 0;
+      const ccRings = demandData.skuChannelCountry[sku] || {};
 
-      // Only include SKUs that have stock OR demand
-      if (totalStock === 0 && dailyDemand === 0) continue;
-
-      const daysOfCover = dailyDemand > 0
-        ? totalStock / dailyDemand
-        : (totalStock > 0 ? 9999 : 0);
+      // Only include SKUs that have stock OR demand somewhere
+      if (totalStock === 0 && totalRings === 0) continue;
 
       // Compute per-location DRR and DOC using channel×country demand routes
       const warehouseDRR: Record<string, number> = {};
@@ -300,7 +269,7 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
 
         if (demandRoutes === '*') {
           // Global — serves everything (Bangalore factory)
-          locationRings = skuDemand.totalRings;
+          locationRings = totalRings;
         } else {
           for (const route of demandRoutes) {
             // Thailand Shoppee/Lazada: split Marketplace::THAILAND proportionally
@@ -331,29 +300,14 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       skuAnalysis.push({
         sku,
         ringType: getRingType(sku),
-        totalStock,
-        dailyDemand: Math.round(dailyDemand * 100) / 100,
-        daysOfCover: daysOfCover >= 9999 ? 9999 : Math.round(daysOfCover),
-        status: getStatus(daysOfCover >= 9999 ? 9999 : daysOfCover),
         warehouseStock: stockMap,
         warehouseDRR,
         warehouseDOC,
-        channelDemand: Object.fromEntries(
-          Object.entries(skuDemand.channels).map(([ch, drr]) => [ch, Math.round(drr * 100) / 100])
-        ),
       });
     }
 
-    // Sort by days of cover ascending (most critical first)
-    skuAnalysis.sort((a, b) => a.daysOfCover - b.daysOfCover);
-
-    const summary = {
-      critical: skuAnalysis.filter(s => s.status === 'critical').length,
-      understock: skuAnalysis.filter(s => s.status === 'understock').length,
-      balanced: skuAnalysis.filter(s => s.status === 'balanced').length,
-      overstock: skuAnalysis.filter(s => s.status === 'overstock').length,
-      totalSKUs: skuAnalysis.length,
-    };
+    // Sort alphabetically by SKU
+    skuAnalysis.sort((a, b) => a.sku.localeCompare(b.sku));
 
     // Fetch optimal DOC settings from DB
     let optimalDOC: Record<string, number> = {};
@@ -371,7 +325,6 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
     }
 
     res.json({
-      summary,
       skus: skuAnalysis,
       locations: inventory.locations,
       optimalDOC,
