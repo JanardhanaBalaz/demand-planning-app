@@ -10,6 +10,9 @@ import Users from './pages/Users'
 import PromotionCalendar from './pages/PromotionCalendar'
 import ChannelForecast from './pages/ChannelForecast'
 import ForecastSummary from './pages/ForecastSummary'
+import GlobalInventory from './pages/GlobalInventory'
+import StockAnalysis from './pages/StockAnalysis'
+import RuleEngine from './pages/RuleEngine'
 
 function App() {
   return (
@@ -23,6 +26,9 @@ function App() {
         <Route path="promotion-calendar" element={<PromotionCalendar />} />
         <Route path="channel-forecast" element={<ChannelForecast />} />
         <Route path="forecast-summary" element={<ForecastSummary />} />
+        <Route path="global-inventory" element={<GlobalInventory />} />
+        <Route path="stock-analysis" element={<StockAnalysis />} />
+        <Route path="rule-engine" element={<RuleEngine />} />
         <Route path="import" element={<Import />} />
         <Route path="users" element={<Users />} />
       </Route>

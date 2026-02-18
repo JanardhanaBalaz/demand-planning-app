@@ -33,6 +33,15 @@ function Layout() {
           <NavLink to="/forecast-summary" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Forecast Summary
           </NavLink>
+          <NavLink to="/global-inventory" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            Global Inventory
+          </NavLink>
+          <NavLink to="/stock-analysis" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            Stock Analysis
+          </NavLink>
+          <NavLink to="/rule-engine" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            Rule Engine
+          </NavLink>
           <NavLink to="/import" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Import/Export
           </NavLink>

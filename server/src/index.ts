@@ -7,6 +7,9 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import promotionRoutes from './routes/promotions.js';
 import channelForecastRoutes from './routes/channel-forecast.js';
+import globalInventoryRoutes from './routes/global-inventory.js';
+import ruleEngineRoutes from './routes/rule-engine.js';
+import stockAnalysisRoutes from './routes/stock-analysis.js';
 
 dotenv.config();
 
@@ -29,6 +32,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/promotions', promotionRoutes);
 app.use('/api/channel-forecast', channelForecastRoutes);
+app.use('/api/global-inventory', globalInventoryRoutes);
+app.use('/api/rule-engine', ruleEngineRoutes);
+app.use('/api/stock-analysis', stockAnalysisRoutes);
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {

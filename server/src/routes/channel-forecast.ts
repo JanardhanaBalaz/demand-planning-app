@@ -306,11 +306,21 @@ router.post('/save-forecasts', async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Delete existing forecasts for this channel+region before inserting fresh data
-    await query(
-      `DELETE FROM demand_forecasts WHERE channel = $1 AND country_bucket = $2`,
-      [channelGroup, countryBucket]
-    );
+    // Delete existing forecasts before inserting fresh data
+    // For non-Retail channels, clear ALL entries for the channel (regardless of country_bucket)
+    // For Retail, clear only the specific region
+    const noRegionChannels = ['B2C', 'Replacement', 'Marketplace'];
+    if (noRegionChannels.includes(channelGroup)) {
+      await query(
+        `DELETE FROM demand_forecasts WHERE channel = $1`,
+        [channelGroup]
+      );
+    } else {
+      await query(
+        `DELETE FROM demand_forecasts WHERE channel = $1 AND country_bucket = $2`,
+        [channelGroup, countryBucket]
+      );
+    }
 
     let insertedCount = 0;
 

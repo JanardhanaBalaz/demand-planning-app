@@ -136,4 +136,20 @@ export const channelForecastApi = {
   getForecastSummary: () => api.get('/channel-forecast/forecast-summary'),
 }
 
+export const stockAnalysisApi = {
+  getData: () => api.get('/stock-analysis'),
+}
+
+export const ruleEngineApi = {
+  getRules: () => api.get('/rule-engine'),
+  syncFromSheet: () => api.post('/rule-engine/sync'),
+  updateRule: (id: number, data: { isActive?: boolean; priority?: number }) =>
+    api.put(`/rule-engine/${id}`, data),
+}
+
+export const globalInventoryApi = {
+  getData: () => api.get('/global-inventory'),
+  refresh: () => api.post('/global-inventory/refresh'),
+}
+
 export default api
