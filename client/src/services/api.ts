@@ -138,6 +138,9 @@ export const channelForecastApi = {
 
 export const stockAnalysisApi = {
   getData: () => api.get('/stock-analysis'),
+  getOptimalDoc: () => api.get('/stock-analysis/optimal-doc'),
+  saveOptimalDoc: (settings: { locationName: string; optimalDays: number }[]) =>
+    api.put('/stock-analysis/optimal-doc', { settings }),
 }
 
 export const replenishmentPlanApi = {

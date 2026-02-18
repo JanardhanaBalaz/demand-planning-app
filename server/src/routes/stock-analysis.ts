@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { query as dbQuery } from '../models/db.js';
 
 const router = Router();
 
@@ -354,15 +355,73 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       totalSKUs: skuAnalysis.length,
     };
 
+    // Fetch optimal DOC settings from DB
+    let optimalDOC: Record<string, number> = {};
+    try {
+      const result = await dbQuery('SELECT location_name, optimal_days FROM location_optimal_doc');
+      for (const row of result.rows) {
+        optimalDOC[row.location_name] = row.optimal_days;
+      }
+    } catch {
+      console.log('location_optimal_doc table not available yet, using defaults');
+      // Default 30 days for all locations
+      for (const loc of inventory.locations) {
+        optimalDOC[loc] = 30;
+      }
+    }
+
     res.json({
       summary,
       skus: skuAnalysis,
       locations: inventory.locations,
+      optimalDOC,
     });
   } catch (error) {
     console.error('Stock analysis failed:', error);
     const msg = error instanceof Error ? error.message : String(error);
     res.status(500).json({ message: 'Failed to run stock analysis', detail: msg });
+  }
+});
+
+// GET /optimal-doc - Get optimal DOC settings for all locations
+router.get('/optimal-doc', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await dbQuery(
+      'SELECT location_name AS "locationName", optimal_days AS "optimalDays", updated_at AS "updatedAt" FROM location_optimal_doc ORDER BY location_name'
+    );
+    res.json({ settings: result.rows });
+  } catch (error) {
+    console.error('Failed to fetch optimal DOC settings:', error);
+    res.status(500).json({ message: 'Failed to fetch optimal DOC settings' });
+  }
+});
+
+// PUT /optimal-doc - Update optimal DOC for one or more locations
+router.put('/optimal-doc', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { settings } = req.body;
+
+    if (!Array.isArray(settings)) {
+      res.status(400).json({ message: 'settings array is required' });
+      return;
+    }
+
+    for (const setting of settings) {
+      if (!setting.locationName || setting.optimalDays === undefined) continue;
+      await dbQuery(
+        `INSERT INTO location_optimal_doc (location_name, optimal_days, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (location_name) DO UPDATE SET
+           optimal_days = EXCLUDED.optimal_days,
+           updated_at = NOW()`,
+        [setting.locationName, setting.optimalDays]
+      );
+    }
+
+    res.json({ message: 'Optimal DOC settings saved', count: settings.length });
+  } catch (error) {
+    console.error('Failed to save optimal DOC settings:', error);
+    res.status(500).json({ message: 'Failed to save optimal DOC settings' });
   }
 });
 

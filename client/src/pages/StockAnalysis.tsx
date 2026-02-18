@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { stockAnalysisApi } from '../services/api'
 
 interface SkuAnalysis {
@@ -29,11 +29,13 @@ const STATUS_CONFIG = {
   overstock: { label: 'Overstock', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
 }
 
-function getCellStatus(doc: number): 'critical' | 'understock' | 'balanced' | 'overstock' {
-  if (doc < 15) return 'critical'
-  if (doc < 30) return 'understock'
-  if (doc <= 60) return 'balanced'
-  return 'overstock'
+// Get cell status relative to optimal DOC target
+function getCellStatus(doc: number, optimal: number): 'critical' | 'understock' | 'balanced' | 'overstock' {
+  const ratio = doc / optimal
+  if (ratio < 0.5) return 'critical'      // < 50% of target
+  if (ratio < 1.0) return 'understock'    // 50-100% of target
+  if (ratio <= 2.0) return 'balanced'     // 100-200% of target
+  return 'overstock'                      // > 200% of target
 }
 
 const TYPE_ORDER = ['Ring Air', 'Diesel Collaborated', 'Wabi Sabi', 'Other']
@@ -45,6 +47,9 @@ function StockAnalysis() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [skus, setSkus] = useState<SkuAnalysis[]>([])
   const [locations, setLocations] = useState<string[]>([])
+  const [optimalDOC, setOptimalDOC] = useState<Record<string, number>>({})
+  const [editingOptimal, setEditingOptimal] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
@@ -59,6 +64,7 @@ function StockAnalysis() {
         setSummary(res.data.summary)
         setSkus(res.data.skus || [])
         setLocations(res.data.locations || [])
+        setOptimalDOC(res.data.optimalDOC || {})
         setError(null)
       })
       .catch(err => {
@@ -80,6 +86,28 @@ function StockAnalysis() {
   const sortIndicator = (key: SortKey) => {
     if (sortKey !== key) return ' \u2195'
     return sortDir === 'asc' ? ' \u2191' : ' \u2193'
+  }
+
+  const getOptimal = useCallback((loc: string) => optimalDOC[loc] || 30, [optimalDOC])
+
+  const handleOptimalEdit = (loc: string) => {
+    setEditingOptimal(loc)
+    setEditValue(String(getOptimal(loc)))
+  }
+
+  const handleOptimalSave = async (loc: string) => {
+    const days = parseInt(editValue, 10)
+    if (isNaN(days) || days <= 0) {
+      setEditingOptimal(null)
+      return
+    }
+    setOptimalDOC(prev => ({ ...prev, [loc]: days }))
+    setEditingOptimal(null)
+    try {
+      await stockAnalysisApi.saveOptimalDoc([{ locationName: loc, optimalDays: days }])
+    } catch (err) {
+      console.error('Failed to save optimal DOC:', err)
+    }
   }
 
   const filtered = useMemo(() => {
@@ -163,7 +191,7 @@ function StockAnalysis() {
                 {count}
               </div>
               <div style={{ fontSize: '0.65rem', color: '#9ca3af' }}>
-                {status === 'critical' ? '<15 days' : status === 'understock' ? '15-30 days' : status === 'balanced' ? '30-60 days' : '>60 days'}
+                {status === 'critical' ? '<50% target' : status === 'understock' ? '50-100% target' : status === 'balanced' ? '100-200% target' : '>200% target'}
               </div>
             </div>
           )
@@ -226,17 +254,52 @@ function StockAnalysis() {
                 <th className="sticky-col col-status" onClick={() => handleSort('status')} style={{ cursor: 'pointer', textAlign: 'center' }}>
                   Status{sortIndicator('status')}
                 </th>
-                {locations.map(loc => (
-                  <th
-                    key={loc}
-                    className="wh-col"
-                    onClick={() => handleSort(loc)}
-                    style={{ cursor: 'pointer', textAlign: 'right' }}
-                  >
-                    {loc}{sortIndicator(loc)}
-                    <div style={{ fontSize: '0.55rem', fontWeight: 400, color: '#9ca3af' }}>stock / doc</div>
-                  </th>
-                ))}
+                {locations.map(loc => {
+                  const optimal = getOptimal(loc)
+                  return (
+                    <th
+                      key={loc}
+                      className="wh-col"
+                      style={{ cursor: 'pointer', textAlign: 'right', verticalAlign: 'top' }}
+                    >
+                      <div onClick={() => handleSort(loc)}>
+                        {loc}{sortIndicator(loc)}
+                      </div>
+                      <div style={{ fontSize: '0.55rem', fontWeight: 400, color: '#9ca3af' }}>stock / doc</div>
+                      {editingOptimal === loc ? (
+                        <div style={{ marginTop: '2px' }}>
+                          <input
+                            type="number"
+                            value={editValue}
+                            onChange={e => setEditValue(e.target.value)}
+                            onBlur={() => handleOptimalSave(loc)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleOptimalSave(loc); if (e.key === 'Escape') setEditingOptimal(null) }}
+                            autoFocus
+                            style={{
+                              width: '40px', padding: '1px 3px', fontSize: '0.6rem',
+                              border: '1px solid #6366f1', borderRadius: '3px', textAlign: 'right',
+                            }}
+                            onClick={e => e.stopPropagation()}
+                          />
+                          <span style={{ fontSize: '0.55rem', color: '#6366f1' }}>d</span>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={e => { e.stopPropagation(); handleOptimalEdit(loc) }}
+                          title="Click to edit optimal DOC target"
+                          style={{
+                            fontSize: '0.55rem', fontWeight: 500, color: '#6366f1',
+                            cursor: 'pointer', marginTop: '1px',
+                            padding: '0 2px', borderRadius: '2px',
+                            background: '#eef2ff',
+                          }}
+                        >
+                          target: {optimal}d
+                        </div>
+                      )}
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
@@ -271,9 +334,10 @@ function StockAnalysis() {
                       const qty = sku.warehouseStock[loc] || 0
                       const doc = sku.warehouseDOC?.[loc]
                       const drr = sku.warehouseDRR?.[loc] || 0
+                      const optimal = getOptimal(loc)
 
                       const cellStatus = (doc !== undefined && (qty > 0 || drr > 0))
-                        ? getCellStatus(doc >= 9999 ? 9999 : doc)
+                        ? getCellStatus(doc >= 9999 ? 9999 : doc, optimal)
                         : null
                       const cellConfig = cellStatus ? STATUS_CONFIG[cellStatus] : null
 
@@ -381,7 +445,7 @@ function StockAnalysis() {
         }
 
         .stock-analysis-page .wh-col {
-          min-width: 65px;
+          min-width: 75px;
         }
       `}</style>
     </div>
