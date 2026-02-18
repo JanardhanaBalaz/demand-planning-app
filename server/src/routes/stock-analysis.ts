@@ -215,7 +215,8 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error('Stock analysis failed:', error);
-    res.status(500).json({ message: 'Failed to run stock analysis' });
+    const msg = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ message: 'Failed to run stock analysis', detail: msg });
   }
 });
 
