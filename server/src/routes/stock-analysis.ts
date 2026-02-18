@@ -9,30 +9,82 @@ const METABASE_API_KEY = process.env.METABASE_API_KEY || '';
 
 const WABI_SABI_PREFIXES = ['WA', 'WG', 'WM', 'WR', 'WS', 'WT'];
 
-// Map location names (as they appear in the inventory sheet) to the countries they serve
-// '*' means all countries (global demand)
-const LOCATION_GEOGRAPHY: Record<string, string[]> = {
+// Per-location demand mapping: which (channel, country) pairs flow through each location
+// Based on warehouse-to-service-location mapping sheet
+// '*' as country means all countries for that channel
+interface DemandRoute { channel: string; country: string; }
+
+const LOCATION_DEMAND: Record<string, DemandRoute[] | '*'> = {
   // Warehouses
-  'IQF+ AD': ['UNITED ARAB EMIRATES'],
-  'BBMS': ['UNITED STATES'],
-  'Blr': ['*'],
-  'NL- WH': ['EUROPE UNION'],
-  'SVT': ['UNITED STATES'],
-  'UK -WH': ['UNITED KINGDOM'],
+  'IQF+ AD': [
+    { channel: 'B2C', country: 'UNITED ARAB EMIRATES' },
+    { channel: 'Marketplace', country: 'UNITED ARAB EMIRATES' },
+    { channel: 'Replacement', country: 'UNITED ARAB EMIRATES' },
+  ],
+  'BBMS': [
+    { channel: 'Replacement', country: 'UNITED STATES' },
+    { channel: 'Marketplace', country: 'CANADA' },
+    { channel: 'Retail', country: 'CANADA' },
+    { channel: 'Marketplace', country: 'EUROPE UNION' },
+    { channel: 'Marketplace', country: 'UNITED KINGDOM' },
+    { channel: 'Marketplace', country: 'AUSTRALIA' },
+  ],
+  'Blr': '*', // Bangalore factory serves everything
+  'NL- WH': [
+    { channel: 'Marketplace', country: 'EUROPE UNION' },
+  ],
+  'SVT': [
+    // SVT factory feeds BBMS — same demand profile
+    { channel: 'Replacement', country: 'UNITED STATES' },
+    { channel: 'Marketplace', country: 'CANADA' },
+    { channel: 'Retail', country: 'CANADA' },
+    { channel: 'Marketplace', country: 'EUROPE UNION' },
+    { channel: 'Marketplace', country: 'UNITED KINGDOM' },
+    { channel: 'Marketplace', country: 'AUSTRALIA' },
+  ],
+  'UK -WH': [
+    { channel: 'Marketplace', country: 'UNITED KINGDOM' },
+  ],
   // FBAs
-  'AUS-FBA': ['AUSTRALIA'],
-  'AUS- FBA': ['AUSTRALIA'],
-  'CA-FBA': ['CANADA'],
-  'EU-FBA': ['EUROPE UNION'],
-  'UK-FBA': ['UNITED KINGDOM'],
-  'SG-FBA': ['SINGAPORE'],
-  'UAE-FBA': ['UNITED ARAB EMIRATES'],
-  'FBA - INDIA': ['INDIA'],
-  'Shoppee': ['THAILAND'],
-  'Lazada': ['THAILAND'],
-  'US-FBA': ['UNITED STATES'],
-  'JP-FBA': ['JAPAN'],
-  'SA-FBA': ['SAUDI ARABIA'],
+  'AUS-FBA': [
+    { channel: 'B2C', country: 'AUSTRALIA' },
+    { channel: 'Replacement', country: 'AUSTRALIA' },
+    { channel: 'Marketplace', country: 'AUSTRALIA' },
+  ],
+  'AUS- FBA': [
+    { channel: 'B2C', country: 'AUSTRALIA' },
+    { channel: 'Replacement', country: 'AUSTRALIA' },
+    { channel: 'Marketplace', country: 'AUSTRALIA' },
+  ],
+  'CA-FBA': [
+    { channel: 'B2C', country: 'CANADA' },
+    { channel: 'Replacement', country: 'CANADA' },
+    { channel: 'Marketplace', country: 'CANADA' },
+  ],
+  'EU-FBA': [
+    { channel: 'B2C', country: 'EUROPE UNION' },
+    { channel: 'Replacement', country: 'EUROPE UNION' },
+    { channel: 'Marketplace', country: 'EUROPE UNION' },
+  ],
+  'UK-FBA': [
+    { channel: 'B2C', country: 'UNITED KINGDOM' },
+    { channel: 'Marketplace', country: 'UNITED KINGDOM' },
+  ],
+  'SG-FBA': [
+    { channel: 'Marketplace', country: 'SINGAPORE' },
+  ],
+  'UAE-FBA': [
+    { channel: 'Marketplace', country: 'UNITED ARAB EMIRATES' },
+  ],
+  'FBA - INDIA': [
+    { channel: 'Marketplace', country: 'INDIA' },
+  ],
+  'Shoppee': [
+    { channel: 'Marketplace', country: 'THAILAND' },
+  ],
+  'Lazada': [
+    { channel: 'Marketplace', country: 'THAILAND' },
+  ],
 };
 
 const RING_TYPES: Record<string, string[]> = {
@@ -110,10 +162,11 @@ async function fetchInventory(): Promise<{
   return { locations, skuStock };
 }
 
-// Fetch per-SKU demand from Metabase (last 30 days), with per-country breakdown
+// Fetch per-SKU demand from Metabase (last 30 days), with channel×country breakdown
 async function fetchDemandData(): Promise<{
-  perSku: Record<string, { drr: number; channels: Record<string, number> }>;
-  perSkuCountry: Record<string, Record<string, number>>; // sku -> country -> total rings
+  perSku: Record<string, { drr: number; totalRings: number; channels: Record<string, number> }>;
+  // sku -> "channel::country" -> rings (e.g. "B2C::UNITED STATES" -> 150)
+  perSkuChannelCountry: Record<string, Record<string, number>>;
 }> {
   const end = new Date();
   const start = new Date(end.getTime() - 29 * 24 * 60 * 60 * 1000);
@@ -137,7 +190,7 @@ async function fetchDemandData(): Promise<{
   const days = 30;
 
   const skuRings: Record<string, { total: number; channels: Record<string, number> }> = {};
-  const skuCountryRings: Record<string, Record<string, number>> = {};
+  const skuChannelCountry: Record<string, Record<string, number>> = {};
 
   for (const row of rows) {
     const sku = String(row['SKU'] || '').trim();
@@ -152,24 +205,25 @@ async function fetchDemandData(): Promise<{
     skuRings[sku].total += rings;
     skuRings[sku].channels[channel] = (skuRings[sku].channels[channel] || 0) + rings;
 
-    // Per-SKU per-country aggregation
+    // Per-SKU per-channel×country aggregation
     if (country) {
-      if (!skuCountryRings[sku]) skuCountryRings[sku] = {};
-      skuCountryRings[sku][country] = (skuCountryRings[sku][country] || 0) + rings;
+      const key = `${channel}::${country}`;
+      if (!skuChannelCountry[sku]) skuChannelCountry[sku] = {};
+      skuChannelCountry[sku][key] = (skuChannelCountry[sku][key] || 0) + rings;
     }
   }
 
   // Convert to DRR
-  const perSku: Record<string, { drr: number; channels: Record<string, number> }> = {};
+  const perSku: Record<string, { drr: number; totalRings: number; channels: Record<string, number> }> = {};
   for (const [sku, data] of Object.entries(skuRings)) {
     const channelDRR: Record<string, number> = {};
     for (const [ch, rings] of Object.entries(data.channels)) {
       channelDRR[ch] = rings / days;
     }
-    perSku[sku] = { drr: data.total / days, channels: channelDRR };
+    perSku[sku] = { drr: data.total / days, totalRings: data.total, channels: channelDRR };
   }
 
-  return { perSku, perSkuCountry: skuCountryRings };
+  return { perSku, perSkuChannelCountry: skuChannelCountry };
 }
 
 interface SkuAnalysis {
@@ -222,9 +276,9 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
     for (const sku of allSkus) {
       const stockMap = inventory.skuStock[sku] || {};
       const totalStock = Object.values(stockMap).reduce((s, v) => s + v, 0);
-      const skuDemand = demandData.perSku[sku] || { drr: 0, channels: {} };
+      const skuDemand = demandData.perSku[sku] || { drr: 0, totalRings: 0, channels: {} };
       const dailyDemand = skuDemand.drr;
-      const countryRings = demandData.perSkuCountry[sku] || {};
+      const ccRings = demandData.perSkuChannelCountry[sku] || {};
 
       // Only include SKUs that have stock OR demand
       if (totalStock === 0 && dailyDemand === 0) continue;
@@ -233,28 +287,33 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
         ? totalStock / dailyDemand
         : (totalStock > 0 ? 9999 : 0);
 
-      // Compute per-location DRR and DOC for FBA locations
+      // Compute per-location DRR and DOC using channel×country demand routes
       const warehouseDRR: Record<string, number> = {};
       const warehouseDOC: Record<string, number> = {};
 
       for (const location of inventory.locations) {
-        const countries = LOCATION_GEOGRAPHY[location];
-        if (!countries) continue; // WH location — no geography mapping
+        const demandRoutes = LOCATION_DEMAND[location];
+        if (!demandRoutes) continue; // No mapping for this location
 
         let locationRings = 0;
 
-        if (countries.includes('*')) {
-          // Global — serves all countries (e.g. Bangalore)
-          locationRings = Object.values(countryRings).reduce((s, v) => s + v, 0);
-        } else if (countries.includes('THAILAND') && (location === 'Shoppee' || location === 'Lazada')) {
-          // Split Thailand demand proportionally to stock
-          const ratio = thaiTotal > 0
-            ? (location === 'Shoppee' ? shoppeeTotal : lazadaTotal) / thaiTotal
-            : 0.5;
-          locationRings = (countryRings['THAILAND'] || 0) * ratio;
+        if (demandRoutes === '*') {
+          // Global — serves everything (Bangalore factory)
+          locationRings = skuDemand.totalRings;
         } else {
-          for (const country of countries) {
-            locationRings += countryRings[country] || 0;
+          for (const route of demandRoutes) {
+            // Thailand Shoppee/Lazada: split Marketplace::THAILAND proportionally
+            if (route.country === 'THAILAND' && route.channel === 'Marketplace'
+                && (location === 'Shoppee' || location === 'Lazada')) {
+              const thaiMarketplace = ccRings['Marketplace::THAILAND'] || 0;
+              const ratio = thaiTotal > 0
+                ? (location === 'Shoppee' ? shoppeeTotal : lazadaTotal) / thaiTotal
+                : 0.5;
+              locationRings += thaiMarketplace * ratio;
+            } else {
+              const key = `${route.channel}::${route.country}`;
+              locationRings += ccRings[key] || 0;
+            }
           }
         }
 
