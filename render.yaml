@@ -29,5 +29,5 @@ services:
         sync: false
       - key: METABASE_URL
         sync: false
-      - key: METABASE_TOKEN
+      - key: METABASE_API_KEY
         sync: false
