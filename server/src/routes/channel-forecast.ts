@@ -280,19 +280,19 @@ router.post('/save-forecasts', async (req: Request, res: Response): Promise<void
       return;
     }
 
+    // Delete existing forecasts for this channel+region before inserting fresh data
+    await query(
+      `DELETE FROM demand_forecasts WHERE channel = $1 AND country_bucket = $2`,
+      [channelGroup, countryBucket]
+    );
+
     let insertedCount = 0;
 
     for (const forecast of forecasts) {
       await query(
         `INSERT INTO demand_forecasts
          (channel, channel_group, country_bucket, sku, forecast_month, forecast_units, created_by, created_at, updated_by, updated_at)
-         VALUES ($1, $1, $2, $3, $4, $5, $6, NOW(), $6, NOW())
-         ON CONFLICT (sku, country_bucket, channel, forecast_month)
-         DO UPDATE SET
-           forecast_units = EXCLUDED.forecast_units,
-           channel_group = EXCLUDED.channel_group,
-           updated_by = EXCLUDED.updated_by,
-           updated_at = NOW()`,
+         VALUES ($1, $1, $2, $3, $4, $5, $6, NOW(), $6, NOW())`,
         [channelGroup, countryBucket, forecast.sku, forecast.forecastMonth, forecast.forecastUnits || 0, null]
       );
       insertedCount++;
