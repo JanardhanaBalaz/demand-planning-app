@@ -124,6 +124,8 @@ function parseNumber(val: string): number {
 // Fetch inventory from Google Sheet — returns per-SKU per-location stock
 async function fetchInventory(): Promise<{
   locations: string[];
+  whLocations: string[];
+  fbaLocations: string[];
   skuStock: Record<string, Record<string, number>>;
 }> {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
@@ -160,7 +162,7 @@ async function fetchInventory(): Promise<{
     }
   }
 
-  return { locations, skuStock };
+  return { locations, whLocations: whColumns, fbaLocations: fbaColumns, skuStock };
 }
 
 // Fetch per-SKU demand from Metabase (last 30 days), with channel×country breakdown
@@ -228,7 +230,10 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
 
     const [inventory, demandData] = await Promise.all([
       fetchInventory(),
-      fetchDemandData(),
+      fetchDemandData().catch(err => {
+        console.warn('Metabase demand fetch failed, proceeding with inventory only:', err.message);
+        return { skuTotalRings: {} as Record<string, number>, skuChannelCountry: {} as Record<string, Record<string, number>> };
+      }),
     ]);
 
     const days = 30;
@@ -327,6 +332,8 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
     res.json({
       skus: skuAnalysis,
       locations: inventory.locations,
+      whLocations: inventory.whLocations,
+      fbaLocations: inventory.fbaLocations,
       optimalDOC,
     });
   } catch (error) {
