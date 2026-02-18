@@ -83,6 +83,14 @@ function StockAnalysis() {
 
   const allLocations = useMemo(() => [...whLocations, ...fbaLocations], [whLocations, fbaLocations])
 
+  const locationTotals = useMemo(() => {
+    const totals: Record<string, number> = {}
+    for (const loc of allLocations) {
+      totals[loc] = skus.reduce((sum, s) => sum + (s.warehouseStock[loc] || 0), 0)
+    }
+    return totals
+  }, [skus, allLocations])
+
   const getOptimal = useCallback((loc: string) => optimalDOC[loc] || 30, [optimalDOC])
 
   const handleDocInputChange = (loc: string, value: string) => {
@@ -197,7 +205,7 @@ function StockAnalysis() {
             <thead>
               {/* Row 1: Group headers */}
               <tr className="group-header-row">
-                <th className="sticky-col col-sku" rowSpan={3} onClick={() => handleSort('sku')} style={{ cursor: 'pointer', verticalAlign: 'bottom' }}>
+                <th className="sticky-col col-sku" rowSpan={2} onClick={() => handleSort('sku')} style={{ cursor: 'pointer', verticalAlign: 'bottom' }}>
                   SKU{sortIndicator('sku')}
                 </th>
                 {whLocations.length > 0 && (
@@ -211,7 +219,7 @@ function StockAnalysis() {
                   </th>
                 )}
               </tr>
-              {/* Row 2: Location names */}
+              {/* Row 2: Location names + total rings */}
               <tr className="loc-header-row">
                 {allLocations.map(loc => (
                   <th
@@ -220,16 +228,21 @@ function StockAnalysis() {
                     onClick={() => handleSort(loc)}
                     style={{ cursor: 'pointer', textAlign: 'right' }}
                   >
-                    {loc}{sortIndicator(loc)}
+                    <div>{loc}{sortIndicator(loc)}</div>
+                    <div style={{ fontSize: '0.55rem', fontWeight: 500, color: '#6b7280' }}>
+                      {locationTotals[loc]?.toLocaleString() || 0} rings
+                    </div>
                   </th>
                 ))}
               </tr>
               {/* Row 3: Target DOC inputs */}
               <tr className="target-doc-row">
+                <th className="sticky-col col-sku" style={{ textAlign: 'left', fontSize: '0.6rem', color: '#6366f1', fontWeight: 600, background: '#f5f3ff' }}>
+                  Target DOC
+                </th>
                 {allLocations.map(loc => (
                   <th key={loc} className="wh-col" style={{ textAlign: 'right', padding: '0.25rem 0.35rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px' }}>
-                      <span style={{ fontSize: '0.55rem', color: '#6366f1', fontWeight: 500 }}>Target:</span>
                       <input
                         type="number"
                         value={docInputs[loc] ?? String(getOptimal(loc))}
@@ -334,7 +347,7 @@ function StockAnalysis() {
           border-bottom: 1px solid #d1d5db;
         }
         .stock-analysis-page .stock-matrix .target-doc-row th {
-          top: 56px;
+          top: 62px;
           border-bottom: 2px solid #d1d5db;
           background: #f5f3ff;
         }
