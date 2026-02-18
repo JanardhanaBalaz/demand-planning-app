@@ -39,7 +39,7 @@ const TYPE_ORDER = ['Ring Air', 'Diesel Collaborated', 'Wabi Sabi', 'Other']
 function StockAnalysis() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [skus, setSkus] = useState<SkuAnalysis[]>([])
-  const [locations, setLocations] = useState<string[]>([])
+  const [, setLocations] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedSKUs, setExpandedSKUs] = useState<Record<string, boolean>>({})
@@ -193,7 +193,7 @@ function StockAnalysis() {
             </tr>
           </thead>
           <tbody>
-            {grouped.map((item, idx) => {
+            {grouped.map((item) => {
               if (item.type === 'header') {
                 const collapsed = collapsedTypes[item.typeName!]
                 return (

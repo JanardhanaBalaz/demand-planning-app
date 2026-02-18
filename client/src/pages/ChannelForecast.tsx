@@ -72,10 +72,6 @@ const COUNTRY_BUCKETS = [
   'ROW',
 ]
 
-function getDaysInMonth(dateStr: string): number {
-  const d = new Date(dateStr)
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
-}
 
 function getNext12Months(): { forecastMonth: string; label: string; daysInMonth: number }[] {
   const months: { forecastMonth: string; label: string; daysInMonth: number }[] = []
@@ -694,7 +690,7 @@ function ChannelForecast() {
               </tr>
             </thead>
             <tbody>
-              {groupedSKUs.map((item, gIdx) => {
+              {groupedSKUs.map((item) => {
                 if (item.type === 'header') {
                   const catSkus = categoryWeights.filter(ew => getRingType(ew.sku) === item.label)
                   const catPctTotal = catSkus.reduce((s, e) => s + e.categoryPct, 0)

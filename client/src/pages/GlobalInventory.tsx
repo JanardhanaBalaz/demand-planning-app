@@ -191,7 +191,6 @@ function GlobalInventory() {
                 const collapsed = collapsedTypes[item.label]
                 const ct = categoryTotals[item.label]
                 if (!ct) return null
-                const totalCols = data.whColumns.length + 1 + 1 + data.fbaColumns.length + 1 + 1 + 1
                 return (
                   <tr
                     key={`header-${item.label}`}

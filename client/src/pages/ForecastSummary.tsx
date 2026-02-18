@@ -163,19 +163,6 @@ function ForecastSummary() {
     return Array.from(set).sort()
   }, [forecasts])
 
-  // Toggle channel selection
-  const toggleChannelSelect = (ch: string) => {
-    setSelectedChannels(prev => {
-      const next = new Set(prev)
-      if (next.has(ch)) {
-        next.delete(ch)
-      } else {
-        next.add(ch)
-      }
-      return next
-    })
-  }
-
   const selectAllChannels = () => {
     setSelectedChannels(new Set(CHANNELS))
   }
@@ -284,6 +271,107 @@ function ForecastSummary() {
     setExpandedChannels(prev => ({ ...prev, [ch]: !prev[ch] }))
   }
 
+  // Generate markdown report
+  const generateMarkdown = () => {
+    const lines: string[] = []
+    const now = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    lines.push(`# Forecast Summary`)
+    lines.push(``)
+    lines.push(`Generated: ${now}`)
+    lines.push(``)
+
+    // Channel Overview table
+    lines.push(`## Channel Overview`)
+    lines.push(``)
+    const header = ['Channel', ...months.map(m => formatMonth(m + '-01')), 'Total']
+    lines.push(`| ${header.join(' | ')} |`)
+    lines.push(`| ${header.map(() => '---').join(' | ')} |`)
+
+    for (const ch of CHANNELS) {
+      const chData = allChannelTotals[ch] || {}
+      const hasData = Object.values(chData).some(v => v > 0)
+      const row = [
+        ch,
+        ...months.map(m => hasData ? (chData[m] || 0).toLocaleString() : '—'),
+        hasData ? Object.values(chData).reduce((s, v) => s + v, 0).toLocaleString() : '—',
+      ]
+      lines.push(`| ${row.join(' | ')} |`)
+    }
+
+    // Grand total row
+    const grandRow = [
+      '**Grand Total**',
+      ...months.map(m => `**${CHANNELS.reduce((s, ch) => s + (allChannelTotals[ch]?.[m] || 0), 0).toLocaleString()}**`),
+      `**${CHANNELS.reduce((s, ch) => s + Object.values(allChannelTotals[ch] || {}).reduce((ss, v) => ss + v, 0), 0).toLocaleString()}**`,
+    ]
+    lines.push(`| ${grandRow.join(' | ')} |`)
+    lines.push(``)
+
+    // Retail region breakdown
+    if (retailRegions.length > 0) {
+      lines.push(`### Retail - Region Breakdown`)
+      lines.push(``)
+      const rHeader = ['Region', ...months.map(m => formatMonth(m + '-01')), 'Total']
+      lines.push(`| ${rHeader.join(' | ')} |`)
+      lines.push(`| ${rHeader.map(() => '---').join(' | ')} |`)
+
+      const rt = regionTotals['Retail'] || {}
+      for (const region of retailRegions) {
+        const rData = rt[region] || {}
+        const rTotal = Object.values(rData).reduce((s, v) => s + v, 0)
+        const row = [region, ...months.map(m => (rData[m] || 0).toLocaleString()), rTotal.toLocaleString()]
+        lines.push(`| ${row.join(' | ')} |`)
+      }
+      lines.push(``)
+    }
+
+    // SKU breakdown by ring type
+    lines.push(`## SKU Breakdown (All Channels)`)
+    lines.push(``)
+
+    const typeOrder = ['Ring Air', 'Diesel Collaborated', 'Wabi Sabi', 'Other']
+    for (const type of typeOrder) {
+      const typeSkus = skus.filter(s => getRingType(s) === type)
+      if (typeSkus.length === 0) continue
+
+      lines.push(`### ${type}`)
+      lines.push(``)
+      const skuHeader = ['SKU', ...months.map(m => formatMonth(m + '-01')), 'Total']
+      lines.push(`| ${skuHeader.join(' | ')} |`)
+      lines.push(`| ${skuHeader.map(() => '---').join(' | ')} |`)
+
+      for (const sku of typeSkus) {
+        const skuData = skuMonthMap[sku] || {}
+        const skuTotal = months.reduce((s, m) => s + (skuData[m] || 0), 0)
+        const row = [sku, ...months.map(m => (skuData[m] || 0).toLocaleString()), skuTotal.toLocaleString()]
+        lines.push(`| ${row.join(' | ')} |`)
+      }
+
+      // Category subtotal
+      const catTotals = categoryMonthTotals[type] || {}
+      const catRow = [
+        `**${type} Total**`,
+        ...months.map(m => `**${(catTotals[m] || 0).toLocaleString()}**`),
+        `**${Object.values(catTotals).reduce((s, v) => s + v, 0).toLocaleString()}**`,
+      ]
+      lines.push(`| ${catRow.join(' | ')} |`)
+      lines.push(``)
+    }
+
+    return lines.join('\n')
+  }
+
+  const downloadMarkdown = () => {
+    const md = generateMarkdown()
+    const blob = new Blob([md], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `forecast-summary-${new Date().toISOString().slice(0, 10)}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (loading) {
     return <div className="forecast-summary-page"><p>Loading forecasts...</p></div>
   }
@@ -292,6 +380,26 @@ function ForecastSummary() {
     <div className="forecast-summary-page">
       <div className="page-header">
         <h1 className="page-title">Forecast Summary</h1>
+        {months.length > 0 && (
+          <button
+            onClick={downloadMarkdown}
+            style={{
+              padding: '0.4rem 1rem',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              background: '#4f46e5',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+            }}
+          >
+            Download .md
+          </button>
+        )}
       </div>
 
       {/* All Channels Overview */}
