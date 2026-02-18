@@ -38,14 +38,13 @@ function getCellStatus(doc: number): 'critical' | 'understock' | 'balanced' | 'o
 
 const TYPE_ORDER = ['Ring Air', 'Diesel Collaborated', 'Wabi Sabi', 'Other']
 
-type SortKey = 'sku' | 'totalStock' | 'dailyDemand' | 'daysOfCover' | 'status' | string
+type SortKey = 'sku' | 'totalStock' | 'daysOfCover' | 'status' | string
 type SortDir = 'asc' | 'desc'
 
 function StockAnalysis() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [skus, setSkus] = useState<SkuAnalysis[]>([])
   const [locations, setLocations] = useState<string[]>([])
-  const [fbaLocations, setFbaLocations] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
@@ -60,7 +59,6 @@ function StockAnalysis() {
         setSummary(res.data.summary)
         setSkus(res.data.skus || [])
         setLocations(res.data.locations || [])
-        setFbaLocations(new Set(res.data.fbaLocations || []))
         setError(null)
       })
       .catch(err => {
@@ -100,28 +98,21 @@ function StockAnalysis() {
         cmp = a.sku.localeCompare(b.sku)
       } else if (sortKey === 'totalStock') {
         cmp = a.totalStock - b.totalStock
-      } else if (sortKey === 'dailyDemand') {
-        cmp = a.dailyDemand - b.dailyDemand
       } else if (sortKey === 'daysOfCover') {
         cmp = a.daysOfCover - b.daysOfCover
       } else if (sortKey === 'status') {
         cmp = statusOrder[a.status] - statusOrder[b.status]
-      } else if (fbaLocations.has(sortKey)) {
-        // FBA column: sort by DOC
+      } else {
+        // Location column: sort by DOC
         const aVal = a.warehouseDOC?.[sortKey] ?? 9999
         const bVal = b.warehouseDOC?.[sortKey] ?? 9999
-        cmp = aVal - bVal
-      } else {
-        // WH column: sort by stock
-        const aVal = a.warehouseStock[sortKey] || 0
-        const bVal = b.warehouseStock[sortKey] || 0
         cmp = aVal - bVal
       }
       return sortDir === 'asc' ? cmp : -cmp
     })
 
     return result
-  }, [skus, filterStatus, filterType, searchTerm, sortKey, sortDir, fbaLocations])
+  }, [skus, filterStatus, filterType, searchTerm, sortKey, sortDir])
 
   if (loading) {
     return <div className="stock-analysis-page"><p>Analyzing stock levels per SKU...</p></div>
@@ -229,9 +220,6 @@ function StockAnalysis() {
                 <th className="sticky-col col-total" onClick={() => handleSort('totalStock')} style={{ cursor: 'pointer', textAlign: 'right' }}>
                   Total{sortIndicator('totalStock')}
                 </th>
-                <th className="sticky-col col-drr" onClick={() => handleSort('dailyDemand')} style={{ cursor: 'pointer', textAlign: 'right' }}>
-                  DRR{sortIndicator('dailyDemand')}
-                </th>
                 <th className="sticky-col col-doc" onClick={() => handleSort('daysOfCover')} style={{ cursor: 'pointer', textAlign: 'right' }}>
                   DOC{sortIndicator('daysOfCover')}
                 </th>
@@ -241,12 +229,12 @@ function StockAnalysis() {
                 {locations.map(loc => (
                   <th
                     key={loc}
-                    className={`wh-col${fbaLocations.has(loc) ? ' fba-col' : ''}`}
+                    className="wh-col"
                     onClick={() => handleSort(loc)}
                     style={{ cursor: 'pointer', textAlign: 'right' }}
                   >
                     {loc}{sortIndicator(loc)}
-                    {fbaLocations.has(loc) && <div style={{ fontSize: '0.55rem', fontWeight: 400, color: '#9ca3af' }}>stock / doc</div>}
+                    <div style={{ fontSize: '0.55rem', fontWeight: 400, color: '#9ca3af' }}>stock / doc</div>
                   </th>
                 ))}
               </tr>
@@ -261,9 +249,6 @@ function StockAnalysis() {
                     </td>
                     <td className="sticky-col col-total" style={{ textAlign: 'right', fontWeight: 600, background: config.bg }}>
                       {sku.totalStock.toLocaleString()}
-                    </td>
-                    <td className="sticky-col col-drr" style={{ textAlign: 'right', background: config.bg }}>
-                      {sku.dailyDemand > 0 ? sku.dailyDemand.toFixed(1) : '\u2014'}
                     </td>
                     <td className="sticky-col col-doc" style={{ textAlign: 'right', fontWeight: 700, color: config.color, background: config.bg }}>
                       {sku.daysOfCover >= 9999 ? '\u221E' : sku.daysOfCover}
@@ -284,61 +269,41 @@ function StockAnalysis() {
                     </td>
                     {locations.map(loc => {
                       const qty = sku.warehouseStock[loc] || 0
-                      const isFba = fbaLocations.has(loc)
                       const doc = sku.warehouseDOC?.[loc]
                       const drr = sku.warehouseDRR?.[loc] || 0
 
-                      if (isFba) {
-                        // FBA cell: show stock + DOC with per-cell color coding
-                        const cellStatus = (doc !== undefined && (qty > 0 || drr > 0))
-                          ? getCellStatus(doc >= 9999 ? 9999 : doc)
-                          : null
-                        const cellConfig = cellStatus ? STATUS_CONFIG[cellStatus] : null
+                      const cellStatus = (doc !== undefined && (qty > 0 || drr > 0))
+                        ? getCellStatus(doc >= 9999 ? 9999 : doc)
+                        : null
+                      const cellConfig = cellStatus ? STATUS_CONFIG[cellStatus] : null
 
-                        return (
-                          <td
-                            key={loc}
-                            className="wh-col"
-                            style={{
-                              textAlign: 'right',
-                              background: cellConfig ? cellConfig.bg : undefined,
-                              borderLeft: cellConfig ? `2px solid ${cellConfig.border}` : undefined,
-                              padding: '0.2rem 0.5rem',
-                            }}
-                          >
-                            {qty === 0 && drr === 0 ? (
-                              <span style={{ color: '#d1d5db' }}>{'\u2014'}</span>
-                            ) : (
-                              <>
-                                <div style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>
-                                  {qty.toLocaleString()}
-                                </div>
-                                <div style={{
-                                  fontSize: '0.6rem',
-                                  fontWeight: 700,
-                                  color: cellConfig ? cellConfig.color : '#9ca3af',
-                                }}>
-                                  {doc !== undefined && doc >= 9999 ? '\u221E' : doc !== undefined ? `${doc}d` : ''}
-                                </div>
-                              </>
-                            )}
-                          </td>
-                        )
-                      }
-
-                      // WH cell: show stock only
                       return (
                         <td
                           key={loc}
                           className="wh-col"
                           style={{
                             textAlign: 'right',
-                            color: qty === 0 ? '#d1d5db' : '#374151',
-                            fontWeight: qty > 0 ? 500 : 400,
-                            fontSize: '0.8rem',
+                            background: cellConfig ? cellConfig.bg : undefined,
+                            borderLeft: cellConfig ? `2px solid ${cellConfig.border}` : undefined,
+                            padding: '0.2rem 0.5rem',
                           }}
                         >
-                          {qty === 0 ? '\u2014' : qty.toLocaleString()}
+                          {qty === 0 && drr === 0 ? (
+                            <span style={{ color: '#d1d5db' }}>{'\u2014'}</span>
+                          ) : (
+                            <>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>
+                                {qty.toLocaleString()}
+                              </div>
+                              <div style={{
+                                fontSize: '0.6rem',
+                                fontWeight: 700,
+                                color: cellConfig ? cellConfig.color : '#9ca3af',
+                              }}>
+                                {doc !== undefined && doc >= 9999 ? '\u221E' : doc !== undefined ? `${doc}d` : ''}
+                              </div>
+                            </>
+                          )}
                         </td>
                       )
                     })}
@@ -399,22 +364,17 @@ function StockAnalysis() {
           left: 60px;
           min-width: 60px;
         }
-        .stock-analysis-page .col-drr {
-          left: 120px;
-          min-width: 55px;
-        }
         .stock-analysis-page .col-doc {
-          left: 175px;
+          left: 120px;
           min-width: 50px;
         }
         .stock-analysis-page .col-status {
-          left: 225px;
+          left: 170px;
           min-width: 75px;
           border-right: 2px solid #d1d5db;
         }
         .stock-analysis-page thead .col-sku,
         .stock-analysis-page thead .col-total,
-        .stock-analysis-page thead .col-drr,
         .stock-analysis-page thead .col-doc,
         .stock-analysis-page thead .col-status {
           background: #f9fafb;

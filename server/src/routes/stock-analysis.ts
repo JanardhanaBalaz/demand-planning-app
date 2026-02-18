@@ -9,9 +9,18 @@ const METABASE_API_KEY = process.env.METABASE_API_KEY || '';
 
 const WABI_SABI_PREFIXES = ['WA', 'WG', 'WM', 'WR', 'WS', 'WT'];
 
-// Map FBA/location names (as they appear in the inventory sheet) to the countries they serve
+// Map location names (as they appear in the inventory sheet) to the countries they serve
 const LOCATION_GEOGRAPHY: Record<string, string[]> = {
+  // Warehouses
+  'IQF+ AD': ['INDIA'],
+  'BBMS': ['INDIA'],
+  'Blr': ['INDIA'],
+  'NL- WH': ['EUROPE UNION'],
+  'SVT': ['INDIA'],
+  'UK -WH': ['UNITED KINGDOM'],
+  // FBAs
   'AUS-FBA': ['AUSTRALIA'],
+  'AUS- FBA': ['AUSTRALIA'],
   'CA-FBA': ['CANADA'],
   'EU-FBA': ['EUROPE UNION'],
   'UK-FBA': ['UNITED KINGDOM'],
@@ -282,14 +291,10 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       totalSKUs: skuAnalysis.length,
     };
 
-    // Identify which locations have geography mapping (FBA locations)
-    const fbaLocations = inventory.locations.filter(loc => LOCATION_GEOGRAPHY[loc]);
-
     res.json({
       summary,
       skus: skuAnalysis,
       locations: inventory.locations,
-      fbaLocations,
     });
   } catch (error) {
     console.error('Stock analysis failed:', error);
