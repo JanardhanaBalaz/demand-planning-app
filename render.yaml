@@ -11,7 +11,7 @@ services:
     repo: https://github.com/JanardhanaBalaz/demand-planning-app.git
     branch: main
     plan: free
-    buildCommand: npm install && npm run build && mkdir -p server/dist/public && cp -r client/dist/* server/dist/public/
+    buildCommand: npm install --include=dev && npm run build && mkdir -p server/dist/public && cp -r client/dist/* server/dist/public/
     startCommand: cd server && node dist/migrate.js && node dist/index.js
     envVars:
       - key: DATABASE_URL
