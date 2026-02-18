@@ -37,7 +37,7 @@ function Layout() {
             Global Inventory
           </NavLink>
           <NavLink to="/stock-analysis" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            Stock Analysis
+            Stock Analysis - FG
           </NavLink>
           <NavLink to="/replenishment-plan" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             FBA Replenishment
