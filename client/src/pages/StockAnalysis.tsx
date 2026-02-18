@@ -9,6 +9,8 @@ interface SkuAnalysis {
   daysOfCover: number
   status: 'critical' | 'understock' | 'balanced' | 'overstock'
   warehouseStock: Record<string, number>
+  warehouseDRR: Record<string, number>
+  warehouseDOC: Record<string, number>
   channelDemand: Record<string, number>
 }
 
@@ -27,6 +29,13 @@ const STATUS_CONFIG = {
   overstock: { label: 'Overstock', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
 }
 
+function getCellStatus(doc: number): 'critical' | 'understock' | 'balanced' | 'overstock' {
+  if (doc < 15) return 'critical'
+  if (doc < 30) return 'understock'
+  if (doc <= 60) return 'balanced'
+  return 'overstock'
+}
+
 const TYPE_ORDER = ['Ring Air', 'Diesel Collaborated', 'Wabi Sabi', 'Other']
 
 type SortKey = 'sku' | 'totalStock' | 'dailyDemand' | 'daysOfCover' | 'status' | string
@@ -36,6 +45,7 @@ function StockAnalysis() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [skus, setSkus] = useState<SkuAnalysis[]>([])
   const [locations, setLocations] = useState<string[]>([])
+  const [fbaLocations, setFbaLocations] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
@@ -50,6 +60,7 @@ function StockAnalysis() {
         setSummary(res.data.summary)
         setSkus(res.data.skus || [])
         setLocations(res.data.locations || [])
+        setFbaLocations(new Set(res.data.fbaLocations || []))
         setError(null)
       })
       .catch(err => {
@@ -95,8 +106,13 @@ function StockAnalysis() {
         cmp = a.daysOfCover - b.daysOfCover
       } else if (sortKey === 'status') {
         cmp = statusOrder[a.status] - statusOrder[b.status]
+      } else if (fbaLocations.has(sortKey)) {
+        // FBA column: sort by DOC
+        const aVal = a.warehouseDOC?.[sortKey] ?? 9999
+        const bVal = b.warehouseDOC?.[sortKey] ?? 9999
+        cmp = aVal - bVal
       } else {
-        // Warehouse column sort
+        // WH column: sort by stock
         const aVal = a.warehouseStock[sortKey] || 0
         const bVal = b.warehouseStock[sortKey] || 0
         cmp = aVal - bVal
@@ -105,7 +121,7 @@ function StockAnalysis() {
     })
 
     return result
-  }, [skus, filterStatus, filterType, searchTerm, sortKey, sortDir])
+  }, [skus, filterStatus, filterType, searchTerm, sortKey, sortDir, fbaLocations])
 
   if (loading) {
     return <div className="stock-analysis-page"><p>Analyzing stock levels per SKU...</p></div>
@@ -225,11 +241,12 @@ function StockAnalysis() {
                 {locations.map(loc => (
                   <th
                     key={loc}
-                    className="wh-col"
+                    className={`wh-col${fbaLocations.has(loc) ? ' fba-col' : ''}`}
                     onClick={() => handleSort(loc)}
                     style={{ cursor: 'pointer', textAlign: 'right' }}
                   >
                     {loc}{sortIndicator(loc)}
+                    {fbaLocations.has(loc) && <div style={{ fontSize: '0.55rem', fontWeight: 400, color: '#9ca3af' }}>stock / doc</div>}
                   </th>
                 ))}
               </tr>
@@ -267,6 +284,49 @@ function StockAnalysis() {
                     </td>
                     {locations.map(loc => {
                       const qty = sku.warehouseStock[loc] || 0
+                      const isFba = fbaLocations.has(loc)
+                      const doc = sku.warehouseDOC?.[loc]
+                      const drr = sku.warehouseDRR?.[loc] || 0
+
+                      if (isFba) {
+                        // FBA cell: show stock + DOC with per-cell color coding
+                        const cellStatus = (doc !== undefined && (qty > 0 || drr > 0))
+                          ? getCellStatus(doc >= 9999 ? 9999 : doc)
+                          : null
+                        const cellConfig = cellStatus ? STATUS_CONFIG[cellStatus] : null
+
+                        return (
+                          <td
+                            key={loc}
+                            className="wh-col"
+                            style={{
+                              textAlign: 'right',
+                              background: cellConfig ? cellConfig.bg : undefined,
+                              borderLeft: cellConfig ? `2px solid ${cellConfig.border}` : undefined,
+                              padding: '0.2rem 0.5rem',
+                            }}
+                          >
+                            {qty === 0 && drr === 0 ? (
+                              <span style={{ color: '#d1d5db' }}>{'\u2014'}</span>
+                            ) : (
+                              <>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>
+                                  {qty.toLocaleString()}
+                                </div>
+                                <div style={{
+                                  fontSize: '0.6rem',
+                                  fontWeight: 700,
+                                  color: cellConfig ? cellConfig.color : '#9ca3af',
+                                }}>
+                                  {doc !== undefined && doc >= 9999 ? '\u221E' : doc !== undefined ? `${doc}d` : ''}
+                                </div>
+                              </>
+                            )}
+                          </td>
+                        )
+                      }
+
+                      // WH cell: show stock only
                       return (
                         <td
                           key={loc}

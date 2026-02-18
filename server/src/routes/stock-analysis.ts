@@ -9,6 +9,22 @@ const METABASE_API_KEY = process.env.METABASE_API_KEY || '';
 
 const WABI_SABI_PREFIXES = ['WA', 'WG', 'WM', 'WR', 'WS', 'WT'];
 
+// Map FBA/location names (as they appear in the inventory sheet) to the countries they serve
+const LOCATION_GEOGRAPHY: Record<string, string[]> = {
+  'AUS-FBA': ['AUSTRALIA'],
+  'CA-FBA': ['CANADA'],
+  'EU-FBA': ['EUROPE UNION'],
+  'UK-FBA': ['UNITED KINGDOM'],
+  'SG-FBA': ['SINGAPORE'],
+  'UAE-FBA': ['UNITED ARAB EMIRATES'],
+  'FBA - INDIA': ['INDIA'],
+  'Shoppee': ['THAILAND'],
+  'Lazada': ['THAILAND'],
+  'US-FBA': ['UNITED STATES'],
+  'JP-FBA': ['JAPAN'],
+  'SA-FBA': ['SAUDI ARABIA'],
+};
+
 const RING_TYPES: Record<string, string[]> = {
   'Ring Air': ['AA', 'AG', 'AS', 'BR', 'MG', 'RT'],
   'Diesel Collaborated': ['DB', 'DS'],
@@ -84,8 +100,11 @@ async function fetchInventory(): Promise<{
   return { locations, skuStock };
 }
 
-// Fetch per-SKU DRR from Metabase (last 30 days, all channels combined)
-async function fetchPerSkuDRR(): Promise<Record<string, { drr: number; channels: Record<string, number> }>> {
+// Fetch per-SKU demand from Metabase (last 30 days), with per-country breakdown
+async function fetchDemandData(): Promise<{
+  perSku: Record<string, { drr: number; channels: Record<string, number> }>;
+  perSkuCountry: Record<string, Record<string, number>>; // sku -> country -> total rings
+}> {
   const end = new Date();
   const start = new Date(end.getTime() - 29 * 24 * 60 * 60 * 1000);
   const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
@@ -107,32 +126,40 @@ async function fetchPerSkuDRR(): Promise<Record<string, { drr: number; channels:
   const rows = await resp.json() as Record<string, unknown>[];
   const days = 30;
 
-  // Aggregate per SKU across all channels
   const skuRings: Record<string, { total: number; channels: Record<string, number> }> = {};
+  const skuCountryRings: Record<string, Record<string, number>> = {};
 
   for (const row of rows) {
     const sku = String(row['SKU'] || '').trim();
     const channel = String(row['CHANNEL'] || '').trim();
+    const country = String(row['NEW_COUNTRY_BUCKET'] || '').trim().toUpperCase();
     const rings = Number(row['RING_COUNT'] || 0);
 
     if (!sku || !channel) continue;
 
+    // Global per-SKU aggregation
     if (!skuRings[sku]) skuRings[sku] = { total: 0, channels: {} };
     skuRings[sku].total += rings;
     skuRings[sku].channels[channel] = (skuRings[sku].channels[channel] || 0) + rings;
+
+    // Per-SKU per-country aggregation
+    if (country) {
+      if (!skuCountryRings[sku]) skuCountryRings[sku] = {};
+      skuCountryRings[sku][country] = (skuCountryRings[sku][country] || 0) + rings;
+    }
   }
 
   // Convert to DRR
-  const result: Record<string, { drr: number; channels: Record<string, number> }> = {};
+  const perSku: Record<string, { drr: number; channels: Record<string, number> }> = {};
   for (const [sku, data] of Object.entries(skuRings)) {
     const channelDRR: Record<string, number> = {};
     for (const [ch, rings] of Object.entries(data.channels)) {
       channelDRR[ch] = rings / days;
     }
-    result[sku] = { drr: data.total / days, channels: channelDRR };
+    perSku[sku] = { drr: data.total / days, channels: channelDRR };
   }
 
-  return result;
+  return { perSku, perSkuCountry: skuCountryRings };
 }
 
 interface SkuAnalysis {
@@ -143,6 +170,8 @@ interface SkuAnalysis {
   daysOfCover: number;
   status: 'critical' | 'understock' | 'balanced' | 'overstock';
   warehouseStock: Record<string, number>;
+  warehouseDRR: Record<string, number>;
+  warehouseDOC: Record<string, number>;
   channelDemand: Record<string, number>;
 }
 
@@ -158,23 +187,34 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
   try {
     console.log('Starting SKU-level stock analysis...');
 
-    const [inventory, skuDRR] = await Promise.all([
+    const [inventory, demandData] = await Promise.all([
       fetchInventory(),
-      fetchPerSkuDRR(),
+      fetchDemandData(),
     ]);
+
+    const days = 30;
+
+    // Pre-compute Thailand stock split ratio for Shoppee/Lazada
+    let shoppeeTotal = 0, lazadaTotal = 0;
+    for (const stockMap of Object.values(inventory.skuStock)) {
+      shoppeeTotal += stockMap['Shoppee'] || 0;
+      lazadaTotal += stockMap['Lazada'] || 0;
+    }
+    const thaiTotal = shoppeeTotal + lazadaTotal;
 
     // Get all unique SKUs from both inventory and demand
     const allSkus = new Set<string>();
     for (const sku of Object.keys(inventory.skuStock)) allSkus.add(sku);
-    for (const sku of Object.keys(skuDRR)) allSkus.add(sku);
+    for (const sku of Object.keys(demandData.perSku)) allSkus.add(sku);
 
     const skuAnalysis: SkuAnalysis[] = [];
 
     for (const sku of allSkus) {
       const stockMap = inventory.skuStock[sku] || {};
       const totalStock = Object.values(stockMap).reduce((s, v) => s + v, 0);
-      const demandData = skuDRR[sku] || { drr: 0, channels: {} };
-      const dailyDemand = demandData.drr;
+      const skuDemand = demandData.perSku[sku] || { drr: 0, channels: {} };
+      const dailyDemand = skuDemand.drr;
+      const countryRings = demandData.perSkuCountry[sku] || {};
 
       // Only include SKUs that have stock OR demand
       if (totalStock === 0 && dailyDemand === 0) continue;
@@ -182,6 +222,38 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       const daysOfCover = dailyDemand > 0
         ? totalStock / dailyDemand
         : (totalStock > 0 ? 9999 : 0);
+
+      // Compute per-location DRR and DOC for FBA locations
+      const warehouseDRR: Record<string, number> = {};
+      const warehouseDOC: Record<string, number> = {};
+
+      for (const location of inventory.locations) {
+        const countries = LOCATION_GEOGRAPHY[location];
+        if (!countries) continue; // WH location — no geography mapping
+
+        let locationRings = 0;
+
+        if (countries.includes('THAILAND') && (location === 'Shoppee' || location === 'Lazada')) {
+          // Split Thailand demand proportionally to stock
+          const ratio = thaiTotal > 0
+            ? (location === 'Shoppee' ? shoppeeTotal : lazadaTotal) / thaiTotal
+            : 0.5;
+          locationRings = (countryRings['THAILAND'] || 0) * ratio;
+        } else {
+          for (const country of countries) {
+            locationRings += countryRings[country] || 0;
+          }
+        }
+
+        const locationDRR = locationRings / days;
+        warehouseDRR[location] = Math.round(locationDRR * 100) / 100;
+
+        const locStock = stockMap[location] || 0;
+        const locDOC = locationDRR > 0
+          ? locStock / locationDRR
+          : (locStock > 0 ? 9999 : 0);
+        warehouseDOC[location] = locDOC >= 9999 ? 9999 : Math.round(locDOC);
+      }
 
       skuAnalysis.push({
         sku,
@@ -191,8 +263,10 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
         daysOfCover: daysOfCover >= 9999 ? 9999 : Math.round(daysOfCover),
         status: getStatus(daysOfCover >= 9999 ? 9999 : daysOfCover),
         warehouseStock: stockMap,
+        warehouseDRR,
+        warehouseDOC,
         channelDemand: Object.fromEntries(
-          Object.entries(demandData.channels).map(([ch, drr]) => [ch, Math.round(drr * 100) / 100])
+          Object.entries(skuDemand.channels).map(([ch, drr]) => [ch, Math.round(drr * 100) / 100])
         ),
       });
     }
@@ -208,10 +282,14 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       totalSKUs: skuAnalysis.length,
     };
 
+    // Identify which locations have geography mapping (FBA locations)
+    const fbaLocations = inventory.locations.filter(loc => LOCATION_GEOGRAPHY[loc]);
+
     res.json({
       summary,
       skus: skuAnalysis,
       locations: inventory.locations,
+      fbaLocations,
     });
   } catch (error) {
     console.error('Stock analysis failed:', error);
