@@ -32,10 +32,10 @@ type SortDir = 'asc' | 'desc'
 
 function StockAnalysis() {
   const [skus, setSkus] = useState<SkuAnalysis[]>([])
-  const [locations, setLocations] = useState<string[]>([])
+  const [whLocations, setWhLocations] = useState<string[]>([])
+  const [fbaLocations, setFbaLocations] = useState<string[]>([])
   const [optimalDOC, setOptimalDOC] = useState<Record<string, number>>({})
-  const [editingOptimal, setEditingOptimal] = useState<string | null>(null)
-  const [editValue, setEditValue] = useState('')
+  const [docInputs, setDocInputs] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filterType, setFilterType] = useState<string>('all')
@@ -46,9 +46,18 @@ function StockAnalysis() {
   useEffect(() => {
     stockAnalysisApi.getData()
       .then(res => {
+        const wh = res.data.whLocations || []
+        const fba = res.data.fbaLocations || []
         setSkus(res.data.skus || [])
-        setLocations(res.data.locations || [])
-        setOptimalDOC(res.data.optimalDOC || {})
+        setWhLocations(wh)
+        setFbaLocations(fba)
+        const doc = res.data.optimalDOC || {}
+        setOptimalDOC(doc)
+        const inputs: Record<string, string> = {}
+        for (const loc of [...wh, ...fba]) {
+          inputs[loc] = String(doc[loc] || 30)
+        }
+        setDocInputs(inputs)
         setError(null)
       })
       .catch(err => {
@@ -72,21 +81,21 @@ function StockAnalysis() {
     return sortDir === 'asc' ? ' \u2191' : ' \u2193'
   }
 
+  const allLocations = useMemo(() => [...whLocations, ...fbaLocations], [whLocations, fbaLocations])
+
   const getOptimal = useCallback((loc: string) => optimalDOC[loc] || 30, [optimalDOC])
 
-  const handleOptimalEdit = (loc: string) => {
-    setEditingOptimal(loc)
-    setEditValue(String(getOptimal(loc)))
+  const handleDocInputChange = (loc: string, value: string) => {
+    setDocInputs(prev => ({ ...prev, [loc]: value }))
   }
 
-  const handleOptimalSave = async (loc: string) => {
-    const days = parseInt(editValue, 10)
+  const handleDocInputBlur = async (loc: string) => {
+    const days = parseInt(docInputs[loc], 10)
     if (isNaN(days) || days <= 0) {
-      setEditingOptimal(null)
+      setDocInputs(prev => ({ ...prev, [loc]: String(getOptimal(loc)) }))
       return
     }
     setOptimalDOC(prev => ({ ...prev, [loc]: days }))
-    setEditingOptimal(null)
     try {
       await stockAnalysisApi.saveOptimalDoc([{ locationName: loc, optimalDays: days }])
     } catch (err) {
@@ -186,109 +195,108 @@ function StockAnalysis() {
         <div style={{ overflowX: 'auto' }}>
           <table className="stock-matrix">
             <thead>
-              <tr>
-                <th className="sticky-col col-sku" onClick={() => handleSort('sku')} style={{ cursor: 'pointer' }}>
+              {/* Row 1: Group headers */}
+              <tr className="group-header-row">
+                <th className="sticky-col col-sku" rowSpan={3} onClick={() => handleSort('sku')} style={{ cursor: 'pointer', verticalAlign: 'bottom' }}>
                   SKU{sortIndicator('sku')}
                 </th>
-                {locations.map(loc => {
-                  const optimal = getOptimal(loc)
-                  return (
-                    <th
-                      key={loc}
-                      className="wh-col"
-                      style={{ cursor: 'pointer', textAlign: 'right', verticalAlign: 'top' }}
-                    >
-                      <div onClick={() => handleSort(loc)}>
-                        {loc}{sortIndicator(loc)}
-                      </div>
-                      <div style={{ fontSize: '0.55rem', fontWeight: 400, color: '#9ca3af' }}>stock / doc</div>
-                      {editingOptimal === loc ? (
-                        <div style={{ marginTop: '2px' }}>
-                          <input
-                            type="number"
-                            value={editValue}
-                            onChange={e => setEditValue(e.target.value)}
-                            onBlur={() => handleOptimalSave(loc)}
-                            onKeyDown={e => { if (e.key === 'Enter') handleOptimalSave(loc); if (e.key === 'Escape') setEditingOptimal(null) }}
-                            autoFocus
-                            style={{
-                              width: '40px', padding: '1px 3px', fontSize: '0.6rem',
-                              border: '1px solid #6366f1', borderRadius: '3px', textAlign: 'right',
-                            }}
-                            onClick={e => e.stopPropagation()}
-                          />
-                          <span style={{ fontSize: '0.55rem', color: '#6366f1' }}>d</span>
-                        </div>
-                      ) : (
-                        <div
-                          onClick={e => { e.stopPropagation(); handleOptimalEdit(loc) }}
-                          title="Click to edit optimal DOC target"
-                          style={{
-                            fontSize: '0.55rem', fontWeight: 500, color: '#6366f1',
-                            cursor: 'pointer', marginTop: '1px',
-                            padding: '0 2px', borderRadius: '2px',
-                            background: '#eef2ff',
-                          }}
-                        >
-                          target: {optimal}d
-                        </div>
-                      )}
-                    </th>
-                  )
-                })}
+                {whLocations.length > 0 && (
+                  <th colSpan={whLocations.length} className="group-header group-wh">
+                    Warehouses <span style={{ fontWeight: 400, fontSize: '0.55rem', color: '#9ca3af' }}>(stock / doc)</span>
+                  </th>
+                )}
+                {fbaLocations.length > 0 && (
+                  <th colSpan={fbaLocations.length} className="group-header group-fba">
+                    FBA Locations <span style={{ fontWeight: 400, fontSize: '0.55rem', color: '#9ca3af' }}>(stock / doc)</span>
+                  </th>
+                )}
+              </tr>
+              {/* Row 2: Location names */}
+              <tr className="loc-header-row">
+                {allLocations.map(loc => (
+                  <th
+                    key={loc}
+                    className="wh-col"
+                    onClick={() => handleSort(loc)}
+                    style={{ cursor: 'pointer', textAlign: 'right' }}
+                  >
+                    {loc}{sortIndicator(loc)}
+                  </th>
+                ))}
+              </tr>
+              {/* Row 3: Target DOC inputs */}
+              <tr className="target-doc-row">
+                {allLocations.map(loc => (
+                  <th key={loc} className="wh-col" style={{ textAlign: 'right', padding: '0.25rem 0.35rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px' }}>
+                      <span style={{ fontSize: '0.55rem', color: '#6366f1', fontWeight: 500 }}>Target:</span>
+                      <input
+                        type="number"
+                        value={docInputs[loc] ?? String(getOptimal(loc))}
+                        onChange={e => handleDocInputChange(loc, e.target.value)}
+                        onBlur={() => handleDocInputBlur(loc)}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        style={{
+                          width: '38px', padding: '2px 4px', fontSize: '0.65rem',
+                          border: '1px solid #c7d2fe', borderRadius: '3px', textAlign: 'right',
+                          background: '#eef2ff', color: '#4338ca', fontWeight: 600,
+                        }}
+                      />
+                      <span style={{ fontSize: '0.55rem', color: '#6366f1', fontWeight: 500 }}>d</span>
+                    </div>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map(sku => {
-                return (
-                  <tr key={sku.sku}>
-                    <td className="sticky-col col-sku" style={{ fontWeight: 600, background: '#fff' }}>
-                      {sku.sku}
-                    </td>
-                    {locations.map(loc => {
-                      const qty = sku.warehouseStock[loc] || 0
-                      const doc = sku.warehouseDOC?.[loc]
-                      const drr = sku.warehouseDRR?.[loc] || 0
-                      const optimal = getOptimal(loc)
+              {filtered.map(sku => (
+                <tr key={sku.sku}>
+                  <td className="sticky-col col-sku" style={{ fontWeight: 600, background: '#fff' }}>
+                    {sku.sku}
+                  </td>
+                  {allLocations.map(loc => {
+                    const qty = sku.warehouseStock[loc] || 0
+                    const doc = sku.warehouseDOC?.[loc]
+                    const drr = sku.warehouseDRR?.[loc] || 0
+                    const optimal = getOptimal(loc)
 
-                      const cellStatus = (doc !== undefined && (qty > 0 || drr > 0))
-                        ? getCellStatus(doc >= 9999 ? 9999 : doc, optimal)
-                        : null
-                      const cellConfig = cellStatus ? STATUS_CONFIG[cellStatus] : null
+                    const cellStatus = (doc !== undefined && (qty > 0 || drr > 0))
+                      ? getCellStatus(doc >= 9999 ? 9999 : doc, optimal)
+                      : null
+                    const cellConfig = cellStatus ? STATUS_CONFIG[cellStatus] : null
 
-                      return (
-                        <td
-                          key={loc}
-                          className="wh-col"
-                          style={{
-                            textAlign: 'right',
-                            background: cellConfig ? cellConfig.bg : undefined,
-                            borderLeft: cellConfig ? `2px solid ${cellConfig.border}` : undefined,
-                            padding: '0.2rem 0.5rem',
-                          }}
-                        >
-                          {qty === 0 && drr === 0 ? (
-                            <span style={{ color: '#d1d5db' }}>{'\u2014'}</span>
-                          ) : (
-                            <>
-                              <div style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>
-                                {qty.toLocaleString()}
-                              </div>
-                              <div style={{
-                                fontSize: '0.6rem',
-                                fontWeight: 700,
-                                color: cellConfig ? cellConfig.color : '#9ca3af',
-                              }}>
-                                {doc !== undefined && doc >= 9999 ? '\u221E' : doc !== undefined ? `${doc}d` : ''}
-                              </div>
-                            </>
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
+                    return (
+                      <td
+                        key={loc}
+                        className="wh-col"
+                        style={{
+                          textAlign: 'right',
+                          background: cellConfig ? cellConfig.bg : undefined,
+                          borderLeft: cellConfig ? `2px solid ${cellConfig.border}` : undefined,
+                          padding: '0.2rem 0.5rem',
+                        }}
+                      >
+                        {qty === 0 && drr === 0 ? (
+                          <span style={{ color: '#d1d5db' }}>{'\u2014'}</span>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>
+                              {qty.toLocaleString()}
+                            </div>
+                            <div style={{
+                              fontSize: '0.6rem',
+                              fontWeight: 700,
+                              color: cellConfig ? cellConfig.color : '#9ca3af',
+                            }}>
+                              {doc !== undefined && doc >= 9999 ? '\u221E' : doc !== undefined ? `${doc}d` : ''}
+                            </div>
+                          </>
+                        )}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -315,10 +323,29 @@ function StockAnalysis() {
           letter-spacing: 0.03em;
           background: #f9fafb;
           position: sticky;
-          top: 0;
           z-index: 2;
-          border-bottom: 2px solid #d1d5db;
           user-select: none;
+        }
+        .stock-analysis-page .stock-matrix .group-header-row th {
+          top: 0;
+        }
+        .stock-analysis-page .stock-matrix .loc-header-row th {
+          top: 28px;
+          border-bottom: 1px solid #d1d5db;
+        }
+        .stock-analysis-page .stock-matrix .target-doc-row th {
+          top: 56px;
+          border-bottom: 2px solid #d1d5db;
+          background: #f5f3ff;
+        }
+        .stock-analysis-page .stock-matrix .group-header {
+          text-align: center;
+          font-size: 0.72rem;
+          letter-spacing: 0.04em;
+          border-bottom: 1px solid #d1d5db;
+        }
+        .stock-analysis-page .stock-matrix .group-wh {
+          border-right: 2px solid #e5e7eb;
         }
         .stock-analysis-page .stock-matrix td {
           font-size: 0.8rem;
@@ -346,6 +373,16 @@ function StockAnalysis() {
 
         .stock-analysis-page .wh-col {
           min-width: 75px;
+        }
+
+        /* Remove spinner from number inputs */
+        .stock-analysis-page .target-doc-row input[type=number]::-webkit-inner-spin-button,
+        .stock-analysis-page .target-doc-row input[type=number]::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .stock-analysis-page .target-doc-row input[type=number] {
+          -moz-appearance: textfield;
         }
       `}</style>
     </div>
