@@ -28,7 +28,10 @@ function Layout() {
             Promotion Calendar
           </NavLink>
           <NavLink to="/channel-forecast" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            Channel Forecast
+            Channel Forecast Inputs
+          </NavLink>
+          <NavLink to="/forecast-summary" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            Forecast Summary
           </NavLink>
           <NavLink to="/import" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Import/Export

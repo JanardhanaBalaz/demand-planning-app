@@ -133,6 +133,7 @@ export const channelForecastApi = {
     countryBucket: string
     forecasts: { sku: string; forecastMonth: string; forecastUnits: number }[]
   }) => api.post('/channel-forecast/save-forecasts', data),
+  getForecastSummary: () => api.get('/channel-forecast/forecast-summary'),
 }
 
 export default api

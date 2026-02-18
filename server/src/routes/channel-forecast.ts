@@ -4,48 +4,38 @@ import { query } from '../models/db.js';
 const router = Router();
 
 const CHANNEL_GROUPS: Record<string, string[]> = {
-  'B2C': ['B2C', 'B2C - With Charger', 'B2C - Without Charger', 'D2C', 'D2C - With Charger', 'D2C - Without Charger'],
-  'Retail': ['Retail', 'Retail - With Charger', 'Retail - Without Charger'],
-  'Marketplace': ['Marketplace', 'Marketplace - With Charger', 'Marketplace - Without Charger',
-                   'Amazon', 'Amazon - With Charger', 'Amazon - Without Charger',
-                   'Flipkart', 'Flipkart - With Charger', 'Flipkart - Without Charger'],
+  'B2C': ['B2C'],
+  'Replacement': ['Replacement'],
+  'Retail': ['Retail'],
+  'Marketplace': ['Marketplace'],
 };
 
-const METABASE_URL = process.env.METABASE_URL || 'https://metabase.example.com';
-const METABASE_TOKEN = process.env.METABASE_TOKEN || '';
+const METABASE_URL = process.env.METABASE_URL || 'https://metabase.ultrahuman.com';
+const METABASE_API_KEY = process.env.METABASE_API_KEY || '';
 
-async function fetchQ19170(startDate: string, endDate: string): Promise<unknown[]> {
-  const url = `${METABASE_URL}/api/card/19170/query`;
+async function fetchQ19170(startDate: string, endDate: string): Promise<Record<string, unknown>[]> {
+  // Use /query/json endpoint to bypass the 2,000 row limit
+  const url = `${METABASE_URL}/api/card/19170/query/json`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Metabase-Session': METABASE_TOKEN,
+      'x-api-key': METABASE_API_KEY,
     },
     body: JSON.stringify({
       parameters: [
-        { type: 'date/range', target: ['variable', ['template-tag', 'date_range']], value: `${startDate}~${endDate}` },
+        { type: 'date/single', target: ['variable', ['template-tag', 'start_date']], value: startDate },
+        { type: 'date/single', target: ['variable', ['template-tag', 'end_date']], value: endDate },
       ],
     }),
   });
 
   if (!resp.ok) {
-    throw new Error(`Metabase Q19170 failed: ${resp.status}`);
+    const text = await resp.text();
+    throw new Error(`Metabase Q19170 failed: ${resp.status} - ${text}`);
   }
 
-  const data = await resp.json() as { data?: { rows?: unknown[][]; cols?: { name: string }[] } };
-  if (!data.data?.rows || !data.data?.cols) {
-    return [];
-  }
-
-  const cols = data.data.cols.map((c: { name: string }) => c.name);
-  return data.data.rows.map((row: unknown[]) => {
-    const obj: Record<string, unknown> = {};
-    cols.forEach((col: string, i: number) => {
-      obj[col] = row[i];
-    });
-    return obj;
-  });
+  return await resp.json() as Record<string, unknown>[];
 }
 
 // GET /channels - Returns all channel groups
@@ -58,8 +48,13 @@ router.post('/baseline', async (req: Request, res: Response): Promise<void> => {
   try {
     const { startDate, endDate, countryBucket, channelGroup, ringBasis } = req.body;
 
-    if (!startDate || !endDate || !countryBucket || !channelGroup) {
-      res.status(400).json({ message: 'startDate, endDate, countryBucket, and channelGroup are required' });
+    if (!startDate || !endDate || !channelGroup) {
+      res.status(400).json({ message: 'startDate, endDate, and channelGroup are required' });
+      return;
+    }
+
+    if (channelGroup === 'Retail' && !countryBucket) {
+      res.status(400).json({ message: 'countryBucket is required for this channel' });
       return;
     }
 
@@ -69,20 +64,40 @@ router.post('/baseline', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const rows = await fetchQ19170(startDate, endDate) as Record<string, unknown>[];
+    console.log(`Fetching Q19170: ${startDate} to ${endDate}, channel=${channelGroup}, country=${countryBucket}`);
+    const rows = await fetchQ19170(startDate, endDate);
+    console.log(`Q19170 returned ${rows.length} rows`);
 
-    // Filter rows by channel group mapping and region
+    // Filter rows by channel (and optionally by country bucket)
+    // Q19170 columns: SKU, CHANNEL, "With Charger or Without Charger?", NEW_COUNTRY_BUCKET, RING_COUNT, TOTAL_DAYS, DRR
+    const skipCountryFilter = channelGroup === 'B2C' || channelGroup === 'Replacement' || channelGroup === 'Marketplace';
+
+    // Wabi Sabi SKU prefixes — exclude from B2C
+    const WABI_SABI_PREFIXES = ['WA', 'WG', 'WM', 'WR', 'WS', 'WT'];
+
     const filtered = rows.filter((row) => {
-      const rowChannel = String(row['channel'] || row['Channel'] || '');
-      const rowCountry = String(row['country_bucket'] || row['Country Bucket'] || row['country'] || '');
-      const rowRingBasis = String(row['ring_basis'] || row['Ring Basis'] || 'activated');
-
+      const rowChannel = String(row['CHANNEL'] || '');
       const channelMatch = channelValues.some(ch => rowChannel.toLowerCase() === ch.toLowerCase());
-      const countryMatch = rowCountry.toLowerCase() === countryBucket.toLowerCase();
-      const basisMatch = !ringBasis || rowRingBasis.toLowerCase() === ringBasis.toLowerCase();
+      if (!channelMatch) return false;
 
-      return channelMatch && countryMatch && basisMatch;
+      // Exclude Wabi Sabi SKUs from B2C
+      if (channelGroup === 'B2C') {
+        const sku = String(row['SKU'] || '');
+        const prefix = sku.slice(0, 2).toUpperCase();
+        if (WABI_SABI_PREFIXES.includes(prefix)) return false;
+      }
+
+      if (skipCountryFilter) {
+        return true;
+      }
+
+      const rowCountry = String(row['NEW_COUNTRY_BUCKET'] || '');
+      const countryMatch = rowCountry.toLowerCase() === countryBucket.toLowerCase();
+
+      return countryMatch;
     });
+
+    console.log(`Filtered to ${filtered.length} rows for ${channelGroup} / ${countryBucket}`);
 
     // Calculate date range days
     const start = new Date(startDate);
@@ -94,8 +109,8 @@ router.post('/baseline', async (req: Request, res: Response): Promise<void> => {
     const skuMap: Record<string, number> = {};
 
     for (const row of filtered) {
-      const rings = Number(row['rings'] || row['Rings'] || row['total_rings'] || 0);
-      const sku = String(row['sku'] || row['SKU'] || row['sku_name'] || 'Unknown');
+      const rings = Number(row['RING_COUNT'] || 0);
+      const sku = String(row['SKU'] || 'Unknown');
 
       totalRings += rings;
       skuMap[sku] = (skuMap[sku] || 0) + rings;
@@ -287,6 +302,42 @@ router.post('/save-forecasts', async (req: Request, res: Response): Promise<void
   } catch (error) {
     console.error('Failed to save forecasts:', error);
     res.status(500).json({ message: 'Failed to save forecasts' });
+  }
+});
+
+// GET /forecast-summary - Read saved forecasts grouped by channel, month, SKU
+router.get('/forecast-summary', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await query(
+      `SELECT
+         channel_group as "channelGroup",
+         country_bucket as "countryBucket",
+         sku,
+         TO_CHAR(forecast_month, 'YYYY-MM-DD') as "forecastMonth",
+         forecast_units as "forecastUnits",
+         updated_at as "updatedAt"
+       FROM demand_forecasts
+       ORDER BY channel_group, country_bucket, forecast_month, sku`
+    );
+
+    // Get completeness info per channel
+    const statusResult = await query(
+      `SELECT
+         channel_group as "channelGroup",
+         ARRAY_AGG(DISTINCT country_bucket) as "regions",
+         COUNT(DISTINCT TO_CHAR(forecast_month, 'YYYY-MM')) as "monthCount",
+         MAX(updated_at) as "lastUpdated"
+       FROM demand_forecasts
+       GROUP BY channel_group`
+    );
+
+    res.json({
+      forecasts: result.rows,
+      channelStatus: statusResult.rows,
+    });
+  } catch (error) {
+    console.error('Failed to fetch forecast summary:', error);
+    res.status(500).json({ message: 'Failed to fetch forecast summary' });
   }
 });
 

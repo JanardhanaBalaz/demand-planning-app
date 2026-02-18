@@ -9,6 +9,7 @@ import Import from './pages/Import'
 import Users from './pages/Users'
 import PromotionCalendar from './pages/PromotionCalendar'
 import ChannelForecast from './pages/ChannelForecast'
+import ForecastSummary from './pages/ForecastSummary'
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
         <Route path="forecasts" element={<Forecasts />} />
         <Route path="promotion-calendar" element={<PromotionCalendar />} />
         <Route path="channel-forecast" element={<ChannelForecast />} />
+        <Route path="forecast-summary" element={<ForecastSummary />} />
         <Route path="import" element={<Import />} />
         <Route path="users" element={<Users />} />
       </Route>

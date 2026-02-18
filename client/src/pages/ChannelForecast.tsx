@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { channelForecastApi } from '../services/api'
 
 interface SKUBreakdown {
@@ -54,7 +55,22 @@ interface SavedSKU {
   isOverride: boolean
 }
 
-const COUNTRY_BUCKETS = ['India', 'US', 'EU', 'ROW']
+const COUNTRY_BUCKETS = [
+  'INDIA',
+  'UNITED STATES',
+  'EUROPE UNION',
+  'UNITED KINGDOM',
+  'UNITED ARAB EMIRATES',
+  'AUSTRALIA',
+  'CANADA',
+  'GERMANY',
+  'NETHERLANDS',
+  'FRANCE',
+  'JAPAN',
+  'SAUDI ARABIA',
+  'SINGAPORE',
+  'ROW',
+]
 
 function getDaysInMonth(dateStr: string): number {
   const d = new Date(dateStr)
@@ -65,23 +81,53 @@ function getNext12Months(): { forecastMonth: string; label: string; daysInMonth:
   const months: { forecastMonth: string; label: string; daysInMonth: number }[] = []
   const now = new Date()
   for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + 1 + i, 1)
-    const forecastMonth = d.toISOString().slice(0, 10)
+    const year = now.getFullYear()
+    const month = now.getMonth() + 1 + i
+    const d = new Date(year, month, 1)
+    const forecastMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
     const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-    months.push({ forecastMonth, label, daysInMonth: getDaysInMonth(forecastMonth) })
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+    months.push({ forecastMonth, label, daysInMonth })
   }
   return months
 }
 
+function formatDate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+const RING_TYPES: Record<string, { label: string; prefixes: string[] }> = {
+  'Ring Air': { label: 'Ring Air', prefixes: ['AA', 'AG', 'AS', 'BR', 'MG', 'RT'] },
+  'Diesel Collaborated': { label: 'Diesel Collaborated', prefixes: ['DB', 'DS'] },
+  'Wabi Sabi': { label: 'Wabi Sabi', prefixes: ['WA', 'WG', 'WM', 'WR', 'WS', 'WT'] },
+}
+
+function getRingType(sku: string): string {
+  const prefix = sku.slice(0, 2).toUpperCase()
+  for (const [type, config] of Object.entries(RING_TYPES)) {
+    if (config.prefixes.includes(prefix)) return type
+  }
+  return 'Other'
+}
+
+interface GroupedSKU {
+  type: 'header' | 'sku'
+  label: string
+  skuIdx?: number // index in the effectiveWeights array
+}
+
 function ChannelForecast() {
+  const navigate = useNavigate()
+
   // Channel tabs
   const [channels, setChannels] = useState<string[]>([])
   const [activeChannel, setActiveChannel] = useState('')
 
   // Baseline config
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [countryBucket, setCountryBucket] = useState('India')
+  const [dayRange, setDayRange] = useState<30 | 60 | 'custom'>(30)
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+  const [countryBucket, setCountryBucket] = useState('INDIA')
   const [ringBasis, setRingBasis] = useState('activated')
   const [loadingBaseline, setLoadingBaseline] = useState(false)
 
@@ -98,6 +144,27 @@ function ChannelForecast() {
   // Status
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+
+  // Collapsible category state
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
+  const toggleCategory = (cat: string) => {
+    setCollapsedCategories(prev => ({ ...prev, [cat]: !prev[cat] }))
+  }
+  const isCollapsible = activeChannel === 'B2C' || activeChannel === 'Replacement'
+
+  // Compute start/end dates from toggle or custom input
+  const { startDate, endDate } = useMemo(() => {
+    if (dayRange === 'custom') {
+      return { startDate: customStartDate, endDate: customEndDate }
+    }
+    const end = new Date()
+    end.setDate(end.getDate() - 1) // yesterday
+    const start = new Date(end)
+    start.setDate(start.getDate() - dayRange + 1)
+    return { startDate: formatDate(start), endDate: formatDate(end) }
+  }, [dayRange, customStartDate, customEndDate])
+
+  const noFiltersChannel = activeChannel === 'B2C' || activeChannel === 'Replacement' || activeChannel === 'Marketplace'
 
   // Load accessible channels on mount
   useEffect(() => {
@@ -176,24 +243,11 @@ function ChannelForecast() {
   }, [activeChannel, countryBucket])
 
   // Compute final forecast for each month
+  // Each month: Final = Base × (1 + Lift%)
   const computedMonths = useMemo(() => {
-    return monthConfigs.map((mc, idx) => {
+    return monthConfigs.map((mc) => {
       const baseUnits = mc.baselineDrr * mc.daysInMonth
-      let finalUnits: number
-
-      if (idx === 0) {
-        finalUnits = baseUnits * (1 + mc.liftPct / 100)
-      } else {
-        const prevFinal = (() => {
-          // Recalculate previous month's final
-          let prev = monthConfigs[0].baselineDrr * monthConfigs[0].daysInMonth * (1 + monthConfigs[0].liftPct / 100)
-          for (let i = 1; i <= idx - 1; i++) {
-            prev = prev * (1 + monthConfigs[i].momGrowthPct / 100) * (1 + monthConfigs[i].liftPct / 100)
-          }
-          return prev
-        })()
-        finalUnits = prevFinal * (1 + mc.momGrowthPct / 100) * (1 + mc.liftPct / 100)
-      }
+      const finalUnits = baseUnits * (1 + mc.liftPct / 100)
 
       return {
         ...mc,
@@ -223,8 +277,58 @@ function ChannelForecast() {
     })
   }, [skuRows])
 
+  // Compute per-category weight (each category sums to 100%)
+  const categoryWeights = useMemo(() => {
+    const catTotals: Record<string, number> = {}
+    for (const ew of effectiveWeights) {
+      const type = getRingType(ew.sku)
+      catTotals[type] = (catTotals[type] || 0) + ew.autoWeightPct
+    }
+    return effectiveWeights.map(ew => {
+      const type = getRingType(ew.sku)
+      const catTotal = catTotals[type] || 1
+      return {
+        ...ew,
+        categoryPct: (ew.autoWeightPct / catTotal) * 100,
+      }
+    })
+  }, [effectiveWeights])
+
+  // Per-category override totals
+  const categoryOverrideTotals = useMemo(() => {
+    const totals: Record<string, number> = {}
+    for (const s of skuRows) {
+      const type = getRingType(s.sku)
+      if (s.isOverride && s.manualWeightPct !== null) {
+        totals[type] = (totals[type] || 0) + s.manualWeightPct
+      }
+    }
+    return totals
+  }, [skuRows])
+
+  // Group SKUs by ring type, sorted alphabetically within each group
+  const groupedSKUs = useMemo(() => {
+    const groups: GroupedSKU[] = []
+    const typeOrder = ['Ring Air', 'Diesel Collaborated', 'Wabi Sabi', 'Other']
+
+    for (const type of typeOrder) {
+      const skusInGroup = categoryWeights
+        .map((ew, idx) => ({ ew, idx }))
+        .filter(({ ew }) => getRingType(ew.sku) === type)
+        .sort((a, b) => a.ew.sku.localeCompare(b.ew.sku))
+
+      if (skusInGroup.length > 0) {
+        groups.push({ type: 'header', label: type })
+        for (const { idx } of skusInGroup) {
+          groups.push({ type: 'sku', label: categoryWeights[idx].sku, skuIdx: idx })
+        }
+      }
+    }
+    return groups
+  }, [categoryWeights])
+
   const handleGetBaseline = useCallback(async () => {
-    if (!startDate || !endDate || !activeChannel) return
+    if (!activeChannel) return
 
     setLoadingBaseline(true)
     setMessage('')
@@ -232,9 +336,9 @@ function ChannelForecast() {
       const res = await channelForecastApi.getBaseline({
         startDate,
         endDate,
-        countryBucket,
+        countryBucket: noFiltersChannel ? 'ALL' : countryBucket,
         channelGroup: activeChannel,
-        ringBasis,
+        ringBasis: noFiltersChannel ? '' : ringBasis,
       })
       setBaseline(res.data)
     } catch (err) {
@@ -304,10 +408,8 @@ function ChannelForecast() {
     setSaving(true)
     setMessage('')
     try {
-      // Save settings first
       await handleSaveSettings()
 
-      // Materialize forecasts
       const forecasts: { sku: string; forecastMonth: string; forecastUnits: number }[] = []
 
       for (const cm of computedMonths) {
@@ -327,6 +429,8 @@ function ChannelForecast() {
       })
 
       setMessage('Forecasts generated and saved successfully')
+      // Navigate to summary page after short delay
+      setTimeout(() => navigate('/forecast-summary'), 1000)
     } catch (err) {
       console.error('Generate failed:', err)
       setMessage('Failed to generate forecasts')
@@ -338,7 +442,7 @@ function ChannelForecast() {
   return (
     <div className="channel-forecast-page">
       <div className="page-header">
-        <h1 className="page-title">Channel Demand Forecast</h1>
+        <h1 className="page-title">Channel Forecast Inputs</h1>
       </div>
 
       {/* Channel Tabs */}
@@ -360,65 +464,134 @@ function ChannelForecast() {
       <div className="card" style={{ marginBottom: '1rem' }}>
         <h2 className="card-title" style={{ marginBottom: '1rem' }}>Baseline Configuration</h2>
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'end' }}>
-          <div className="form-group" style={{ flex: '1', minWidth: '150px' }}>
-            <label className="form-label">Start Date</label>
-            <input
-              type="date"
-              className="form-input"
-              value={startDate}
-              onChange={e => setStartDate(e.target.value)}
-            />
-          </div>
-          <div className="form-group" style={{ flex: '1', minWidth: '150px' }}>
-            <label className="form-label">End Date</label>
-            <input
-              type="date"
-              className="form-input"
-              value={endDate}
-              onChange={e => setEndDate(e.target.value)}
-            />
-          </div>
-          <div className="form-group" style={{ flex: '1', minWidth: '150px' }}>
-            <label className="form-label">Region</label>
-            <select
-              className="form-input"
-              value={countryBucket}
-              onChange={e => setCountryBucket(e.target.value)}
-            >
-              {COUNTRY_BUCKETS.map(cb => (
-                <option key={cb} value={cb}>{cb}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group" style={{ flex: '1', minWidth: '200px' }}>
-            <label className="form-label">Ring Basis</label>
-            <div style={{ display: 'flex', gap: '1rem', paddingTop: '0.25rem' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="ringBasis"
-                  value="activated"
-                  checked={ringBasis === 'activated'}
-                  onChange={e => setRingBasis(e.target.value)}
-                />
-                Activated
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="ringBasis"
-                  value="shipped"
-                  checked={ringBasis === 'shipped'}
-                  onChange={e => setRingBasis(e.target.value)}
-                />
-                Shipped
-              </label>
+          {/* 30/60/Custom Day Toggle */}
+          <div className="form-group" style={{ flex: '1', minWidth: '300px' }}>
+            <label className="form-label">Period</label>
+            <div style={{ display: 'flex', gap: '0', border: '1px solid var(--border, #ddd)', borderRadius: '0.375rem', overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setDayRange(30)}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem 0.75rem',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  background: dayRange === 30 ? 'var(--primary, #2563eb)' : 'var(--surface, #fff)',
+                  color: dayRange === 30 ? '#fff' : 'var(--text, #333)',
+                }}
+              >
+                Last 30 Days
+              </button>
+              <button
+                type="button"
+                onClick={() => setDayRange(60)}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem 0.75rem',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border, #ddd)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  background: dayRange === 60 ? 'var(--primary, #2563eb)' : 'var(--surface, #fff)',
+                  color: dayRange === 60 ? '#fff' : 'var(--text, #333)',
+                }}
+              >
+                Last 60 Days
+              </button>
+              <button
+                type="button"
+                onClick={() => setDayRange('custom')}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem 0.75rem',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border, #ddd)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  background: dayRange === 'custom' ? 'var(--primary, #2563eb)' : 'var(--surface, #fff)',
+                  color: dayRange === 'custom' ? '#fff' : 'var(--text, #333)',
+                }}
+              >
+                Custom
+              </button>
             </div>
+            {dayRange !== 'custom' && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary, #888)', marginTop: '0.25rem' }}>
+                {startDate} to {endDate}
+              </span>
+            )}
           </div>
+          {dayRange === 'custom' && (
+            <>
+              <div className="form-group" style={{ flex: '0 0 auto', minWidth: '150px' }}>
+                <label className="form-label">From</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={customStartDate}
+                  onChange={e => setCustomStartDate(e.target.value)}
+                />
+              </div>
+              <div className="form-group" style={{ flex: '0 0 auto', minWidth: '150px' }}>
+                <label className="form-label">To</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={customEndDate}
+                  onChange={e => setCustomEndDate(e.target.value)}
+                />
+              </div>
+            </>
+          )}
+          {!noFiltersChannel && (
+            <div className="form-group" style={{ flex: '1', minWidth: '180px' }}>
+              <label className="form-label">Region</label>
+              <select
+                className="form-input"
+                value={countryBucket}
+                onChange={e => setCountryBucket(e.target.value)}
+              >
+                {COUNTRY_BUCKETS.map(cb => (
+                  <option key={cb} value={cb}>{cb}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {!noFiltersChannel && (
+            <div className="form-group" style={{ flex: '1', minWidth: '200px' }}>
+              <label className="form-label">Ring Basis</label>
+              <div style={{ display: 'flex', gap: '1rem', paddingTop: '0.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="ringBasis"
+                    value="activated"
+                    checked={ringBasis === 'activated'}
+                    onChange={e => setRingBasis(e.target.value)}
+                  />
+                  Activated
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="ringBasis"
+                    value="shipped"
+                    checked={ringBasis === 'shipped'}
+                    onChange={e => setRingBasis(e.target.value)}
+                  />
+                  Shipped
+                </label>
+              </div>
+            </div>
+          )}
           <button
             className="btn btn-primary"
             onClick={handleGetBaseline}
-            disabled={loadingBaseline || !startDate || !endDate}
+            disabled={loadingBaseline || (dayRange === 'custom' && (!customStartDate || !customEndDate))}
             style={{ height: 'fit-content' }}
           >
             {loadingBaseline ? 'Loading...' : 'Get Baseline'}
@@ -453,7 +626,6 @@ function ChannelForecast() {
               </tr>
             </thead>
             <tbody>
-              {/* Base Units (read-only) */}
               <tr>
                 <td style={{ fontWeight: 600, position: 'sticky', left: 0, background: 'var(--surface, #fff)' }}>Base</td>
                 {computedMonths.map(cm => (
@@ -462,7 +634,6 @@ function ChannelForecast() {
                   </td>
                 ))}
               </tr>
-              {/* Lift % (editable) */}
               <tr>
                 <td style={{ fontWeight: 600, position: 'sticky', left: 0, background: 'var(--surface, #fff)' }}>Lift %</td>
                 {monthConfigs.map((mc, idx) => (
@@ -477,22 +648,6 @@ function ChannelForecast() {
                   </td>
                 ))}
               </tr>
-              {/* MoM Growth % (editable) */}
-              <tr>
-                <td style={{ fontWeight: 600, position: 'sticky', left: 0, background: 'var(--surface, #fff)' }}>MoM %</td>
-                {monthConfigs.map((mc, idx) => (
-                  <td key={mc.forecastMonth} style={{ textAlign: 'center' }}>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={mc.momGrowthPct}
-                      onChange={e => updateMonthConfig(idx, 'momGrowthPct', parseFloat(e.target.value) || 0)}
-                      style={{ width: '60px', textAlign: 'center', padding: '0.2rem', border: '1px solid var(--border)', borderRadius: '4px' }}
-                    />
-                  </td>
-                ))}
-              </tr>
-              {/* Final Units (read-only) */}
               <tr style={{ fontWeight: 700, background: 'var(--surface-alt, #f0f4f8)' }}>
                 <td style={{ position: 'sticky', left: 0, background: 'var(--surface-alt, #f0f4f8)' }}>Final</td>
                 {computedMonths.map(cm => (
@@ -501,7 +656,6 @@ function ChannelForecast() {
                   </td>
                 ))}
               </tr>
-              {/* Distribution Method */}
               <tr>
                 <td style={{ fontWeight: 600, position: 'sticky', left: 0, background: 'var(--surface, #fff)' }}>Dist.</td>
                 {monthConfigs.map((mc, idx) => (
@@ -540,37 +694,110 @@ function ChannelForecast() {
               </tr>
             </thead>
             <tbody>
-              {effectiveWeights.map((ew, idx) => (
-                <tr key={ew.sku}>
-                  <td style={{ fontWeight: 500, position: 'sticky', left: 0, background: 'var(--surface, #fff)', fontSize: '0.85rem' }}>
-                    {ew.sku}
-                  </td>
-                  <td style={{ textAlign: 'center', fontSize: '0.85rem' }}>
-                    {ew.autoWeightPct.toFixed(1)}%
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder=""
-                      value={ew.isOverride && ew.manualWeightPct !== null ? ew.manualWeightPct : ''}
-                      onChange={e => updateSKUOverride(idx, e.target.value)}
-                      style={{ width: '60px', textAlign: 'center', padding: '0.2rem', border: '1px solid var(--border)', borderRadius: '4px' }}
-                    />
-                  </td>
-                  {computedMonths.map(cm => (
-                    <td key={cm.forecastMonth} style={{ textAlign: 'center', fontSize: '0.85rem' }}>
-                      {Math.round(cm.finalUnits * ew.effectivePct / 100).toLocaleString()}
+              {groupedSKUs.map((item, gIdx) => {
+                if (item.type === 'header') {
+                  const catSkus = categoryWeights.filter(ew => getRingType(ew.sku) === item.label)
+                  const catPctTotal = catSkus.reduce((s, e) => s + e.categoryPct, 0)
+                  const collapsed = isCollapsible && collapsedCategories[item.label]
+                  return (
+                    <tr
+                      key={`header-${item.label}`}
+                      style={{ background: 'var(--surface-alt, #f0f4f8)', cursor: isCollapsible ? 'pointer' : 'default' }}
+                      onClick={() => isCollapsible && toggleCategory(item.label)}
+                    >
+                      <td
+                        style={{
+                          fontWeight: 700,
+                          fontSize: '0.85rem',
+                          padding: '0.6rem 0.5rem',
+                          position: 'sticky',
+                          left: 0,
+                          background: 'var(--surface-alt, #f0f4f8)',
+                          letterSpacing: '0.03em',
+                          userSelect: 'none',
+                        }}
+                      >
+                        {isCollapsible && (
+                          <span style={{ display: 'inline-block', width: '1.2rem', fontSize: '0.75rem' }}>
+                            {collapsed ? '\u25B6' : '\u25BC'}
+                          </span>
+                        )}
+                        {item.label} ({catSkus.length})
+                      </td>
+                      <td style={{ textAlign: 'center', fontWeight: 700, fontSize: '0.85rem', background: 'var(--surface-alt, #f0f4f8)' }}>
+                        {catPctTotal.toFixed(0)}%
+                      </td>
+                      <td style={{ textAlign: 'center', fontWeight: 700, fontSize: '0.85rem', background: 'var(--surface-alt, #f0f4f8)' }}>
+                        {(() => {
+                          const total = categoryOverrideTotals[item.label] || 0
+                          if (total === 0) return null
+                          const over = total > 100
+                          return (
+                            <span style={{ color: over ? 'var(--danger, red)' : total === 100 ? 'var(--success, green)' : 'var(--text, #333)' }}>
+                              {total.toFixed(1)}%
+                            </span>
+                          )
+                        })()}
+                      </td>
+                      {computedMonths.map(cm => {
+                        const catMonthTotal = catSkus.reduce((s, e) => s + Math.round(cm.finalUnits * e.effectivePct / 100), 0)
+                        return (
+                          <td key={cm.forecastMonth} style={{ textAlign: 'center', fontWeight: 600, fontSize: '0.85rem', background: 'var(--surface-alt, #f0f4f8)' }}>
+                            {catMonthTotal.toLocaleString()}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                }
+
+                // Skip SKU rows if category is collapsed
+                const cw = categoryWeights[item.skuIdx!]
+                const catName = getRingType(cw.sku)
+                if (isCollapsible && collapsedCategories[catName]) return null
+
+                const idx = item.skuIdx!
+                return (
+                  <tr key={cw.sku}>
+                    <td style={{ fontWeight: 500, position: 'sticky', left: 0, background: 'var(--surface, #fff)', fontSize: '0.85rem', paddingLeft: '1.2rem' }}>
+                      {cw.sku}
                     </td>
-                  ))}
-                </tr>
-              ))}
-              {/* Totals row */}
+                    <td style={{ textAlign: 'center', fontSize: '0.85rem' }}>
+                      {cw.categoryPct.toFixed(1)}%
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {(() => {
+                        const catTotal = categoryOverrideTotals[catName] || 0
+                        const overBudget = catTotal > 100
+                        return (
+                          <input
+                            type="number"
+                            step="0.1"
+                            placeholder=""
+                            value={cw.isOverride && cw.manualWeightPct !== null ? cw.manualWeightPct : ''}
+                            onChange={e => updateSKUOverride(idx, e.target.value)}
+                            style={{
+                              width: '60px',
+                              textAlign: 'center',
+                              padding: '0.2rem',
+                              border: `1px solid ${overBudget ? 'var(--danger, red)' : 'var(--border)'}`,
+                              borderRadius: '4px',
+                            }}
+                          />
+                        )
+                      })()}
+                    </td>
+                    {computedMonths.map(cm => (
+                      <td key={cm.forecastMonth} style={{ textAlign: 'center', fontSize: '0.85rem' }}>
+                        {Math.round(cm.finalUnits * cw.effectivePct / 100).toLocaleString()}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
               <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
                 <td style={{ position: 'sticky', left: 0, background: 'var(--surface, #fff)' }}>Total</td>
-                <td style={{ textAlign: 'center' }}>
-                  {effectiveWeights.reduce((s, e) => s + e.effectivePct, 0).toFixed(1)}%
-                </td>
+                <td></td>
                 <td></td>
                 {computedMonths.map(cm => (
                   <td key={cm.forecastMonth} style={{ textAlign: 'center' }}>
@@ -595,13 +822,6 @@ function ChannelForecast() {
               {message}
             </span>
           )}
-          <button
-            className="btn btn-outline"
-            onClick={handleSaveSettings}
-            disabled={saving}
-          >
-            {saving ? 'Saving...' : 'Save Settings'}
-          </button>
           <button
             className="btn btn-primary"
             onClick={handleSaveAndGenerate}
