@@ -38,94 +38,11 @@ async function fetchQ19170(startDate: string, endDate: string): Promise<Record<s
   return await resp.json() as Record<string, unknown>[];
 }
 
-// EU sub-countries that don't appear separately in Q19170 NEW_COUNTRY_BUCKET
-// Their demand is aggregated under "EUROPE UNION". We split proportionally using card 9434.
-const EU_SUB_COUNTRIES = ['FRANCE', 'GERMANY', 'NETHERLANDS'];
-
 // Countries that have their own NEW_COUNTRY_BUCKET in Q19170
 const EXPLICIT_COUNTRIES = [
   'UNITED STATES', 'CANADA', 'EUROPE UNION', 'UNITED KINGDOM', 'AUSTRALIA',
   'INDIA', 'UNITED ARAB EMIRATES', 'SINGAPORE', 'JAPAN', 'SAUDI ARABIA',
 ];
-
-// Fetch card 9434 (Retail B2C SKU distribution by country) to get EU sub-country proportions
-async function fetchEuCountryProportions(): Promise<Record<string, Record<string, number>>> {
-  const url = `${METABASE_URL}/api/card/9434/query/json`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': METABASE_API_KEY },
-    body: JSON.stringify({}),
-  });
-  if (!resp.ok) throw new Error(`Metabase card 9434 failed: ${resp.status}`);
-  const rows = await resp.json() as Record<string, unknown>[];
-
-  // Map country names to normalised form
-  const countryNorm: Record<string, string> = {
-    'THE NETHERLANDS': 'NETHERLANDS',
-    'CZECH REPUBLIC': 'CZECHIA',
-  };
-
-  // Build per-SKU per-country ring counts for EU countries
-  const skuCountryRings: Record<string, Record<string, number>> = {};
-  let totalEuRings = 0;
-  for (const row of rows) {
-    let country = String(row['COUNTRY'] || '').toUpperCase().trim();
-    country = countryNorm[country] || country;
-    const sku = String(row['SKU'] || '');
-    const rings = Number(row['RING_COUNT'] || 0);
-
-    // Check if this is an EU country (not UK, not non-EU)
-    const euCountries = [
-      'GERMANY', 'NETHERLANDS', 'FRANCE', 'CZECHIA', 'SPAIN', 'BELGIUM', 'ITALY',
-      'POLAND', 'AUSTRIA', 'IRELAND', 'PORTUGAL', 'SWEDEN', 'DENMARK', 'SLOVAKIA',
-      'LITHUANIA', 'HUNGARY', 'ROMANIA', 'CYPRUS', 'ESTONIA', 'GREECE', 'LUXEMBOURG',
-      'FINLAND', 'LATVIA', 'SLOVENIA', 'BULGARIA', 'CROATIA', 'MALTA', 'STRAKONICE',
-    ];
-    if (!euCountries.includes(country)) continue;
-
-    if (!skuCountryRings[sku]) skuCountryRings[sku] = {};
-    skuCountryRings[sku][country] = (skuCountryRings[sku][country] || 0) + rings;
-    totalEuRings += rings;
-  }
-
-  // Compute per-country total and proportion
-  const countryTotals: Record<string, number> = {};
-  for (const sku of Object.keys(skuCountryRings)) {
-    for (const [country, rings] of Object.entries(skuCountryRings[sku])) {
-      countryTotals[country] = (countryTotals[country] || 0) + rings;
-    }
-  }
-
-  // Return proportions: { FRANCE: { SKU: proportion_of_eu_total }, ... }
-  // Also compute per-SKU proportion within each target country
-  const result: Record<string, Record<string, number>> = {};
-  for (const targetCountry of EU_SUB_COUNTRIES) {
-    result[targetCountry] = {};
-    const countryTotal = countryTotals[targetCountry] || 0;
-    const countryProportion = totalEuRings > 0 ? countryTotal / totalEuRings : 0;
-    result[targetCountry]['__proportion__'] = countryProportion;
-
-    for (const [sku, countryMap] of Object.entries(skuCountryRings)) {
-      const skuRingsInCountry = countryMap[targetCountry] || 0;
-      if (skuRingsInCountry > 0 && countryTotal > 0) {
-        result[targetCountry][sku] = skuRingsInCountry / countryTotal;
-      }
-    }
-  }
-
-  return result;
-}
-
-let euProportionsCache: { data: Record<string, Record<string, number>>; ts: number } | null = null;
-
-async function getEuProportions(): Promise<Record<string, Record<string, number>>> {
-  if (euProportionsCache && Date.now() - euProportionsCache.ts < 30 * 60 * 1000) {
-    return euProportionsCache.data;
-  }
-  const data = await fetchEuCountryProportions();
-  euProportionsCache = { data, ts: Date.now() };
-  return data;
-}
 
 // GET /channels - Returns all channel groups
 router.get('/channels', (_req: Request, res: Response): void => {
@@ -205,97 +122,10 @@ router.post('/baseline', async (req: Request, res: Response): Promise<void> => {
       skuMap[sku] = (skuMap[sku] || 0) + rings;
     }
 
-    // EU sub-country handling: split EUROPE UNION data proportionally
     let fallbackRegion: string | null = null;
     const upperBucket = (countryBucket || '').toUpperCase();
 
-    if (totalRings === 0 && EU_SUB_COUNTRIES.includes(upperBucket)) {
-      console.log(`No direct data for ${channelGroup}/${countryBucket}, splitting from EUROPE UNION`);
-      fallbackRegion = 'EUROPE UNION (proportional split)';
-
-      // Get EUROPE UNION data
-      const euFiltered = rows.filter((row) => {
-        const rowChannel = String(row['CHANNEL'] || '');
-        const channelMatch = channelValues.some(ch => rowChannel.toLowerCase() === ch.toLowerCase());
-        if (!channelMatch) return false;
-        if (channelGroup === 'B2C') {
-          const sku = String(row['SKU'] || '');
-          if (WABI_SABI_PREFIXES.includes(sku.slice(0, 2).toUpperCase())) return false;
-        }
-        const rowCountry = String(row['NEW_COUNTRY_BUCKET'] || '');
-        return rowCountry.toUpperCase() === 'EUROPE UNION';
-      });
-
-      // Get EU proportions from card 9434
-      const euProps = await getEuProportions();
-      const countryProps = euProps[upperBucket] || {};
-      const countryProportion = countryProps['__proportion__'] || 0;
-
-      console.log(`${upperBucket} proportion of EU: ${(countryProportion * 100).toFixed(1)}%`);
-
-      // Aggregate EU rings per SKU, then apply country proportion
-      const euSkuMap: Record<string, number> = {};
-      let euTotalRings = 0;
-      for (const row of euFiltered) {
-        const rings = Number(row['RING_COUNT'] || 0);
-        const sku = String(row['SKU'] || 'Unknown');
-        euTotalRings += rings;
-        euSkuMap[sku] = (euSkuMap[sku] || 0) + rings;
-      }
-
-      // Apply proportion per SKU: use per-SKU country weight if available, else overall proportion
-      totalRings = 0;
-      skuMap = {};
-      for (const [sku, euRings] of Object.entries(euSkuMap)) {
-        // Per-SKU proportion from card 9434 (if the SKU exists in that country)
-        const skuWeight = countryProps[sku];
-        // If we have per-SKU weight, apply it to the EU total for this SKU
-        // Otherwise use the overall country proportion
-        const proportion = skuWeight !== undefined
-          ? skuWeight * (countryProportion > 0 ? 1 : 0)  // skuWeight is already relative to country total
-          : countryProportion;
-
-        // skuWeight is (country_sku_rings / country_total_rings)
-        // We want: sku_rings_for_country = EU_sku_rings * (country_share_of_EU)
-        const allocatedRings = Math.round(euRings * countryProportion);
-        if (allocatedRings > 0) {
-          skuMap[sku] = allocatedRings;
-          totalRings += allocatedRings;
-        }
-      }
-
-      console.log(`${upperBucket} split: ${euFiltered.length} EU rows, ${euTotalRings} EU rings → ${totalRings} allocated`);
-    }
-
-    // EUROPE UNION handling: subtract FR/DE/NL proportions so it represents "rest of EU"
-    if (upperBucket === 'EUROPE UNION' && totalRings > 0) {
-      try {
-        const euProps = await getEuProportions();
-        let subCountryProportion = 0;
-        for (const subCountry of EU_SUB_COUNTRIES) {
-          subCountryProportion += (euProps[subCountry]?.['__proportion__'] || 0);
-        }
-        const remainingProportion = Math.max(0, 1 - subCountryProportion);
-        console.log(`EUROPE UNION: subtracting ${(subCountryProportion * 100).toFixed(1)}% for FR/DE/NL, keeping ${(remainingProportion * 100).toFixed(1)}%`);
-
-        const originalTotal = totalRings;
-        totalRings = 0;
-        const newSkuMap: Record<string, number> = {};
-        for (const [sku, rings] of Object.entries(skuMap)) {
-          const adjusted = Math.round(rings * remainingProportion);
-          if (adjusted > 0) {
-            newSkuMap[sku] = adjusted;
-            totalRings += adjusted;
-          }
-        }
-        skuMap = newSkuMap;
-        console.log(`EUROPE UNION adjusted: ${originalTotal} → ${totalRings} rings`);
-      } catch (e) {
-        console.warn('Failed to adjust EUROPE UNION proportions, using full data:', e);
-      }
-    }
-
-    // ROW handling: always aggregate all countries not explicitly listed
+    // ROW handling: aggregate all countries not explicitly listed in Q19170
     if (upperBucket === 'ROW') {
       console.log(`Computing ROW as aggregate of unlisted countries for ${channelGroup}`);
       fallbackRegion = 'ROW (aggregated)';
