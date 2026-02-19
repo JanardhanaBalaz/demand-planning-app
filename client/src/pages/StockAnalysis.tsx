@@ -21,8 +21,8 @@ function getCellStatus(doc: number, optimal: number): 'critical' | 'understock' 
   const ratio = doc / optimal
   if (ratio < 0.5) return 'critical'      // < 50% of target
   if (ratio < 1.0) return 'understock'    // 50-100% of target
-  if (ratio <= 2.0) return 'balanced'     // 100-200% of target
-  return 'overstock'                      // > 200% of target
+  if (ratio <= 1.0) return 'balanced'     // exactly at target
+  return 'overstock'                      // > 100% of target
 }
 
 const TYPE_ORDER = ['Ring Air', 'Diesel Collaborated', 'Wabi Sabi', 'Other']
@@ -104,8 +104,8 @@ function StockAnalysis() {
         const drr = s.warehouseDRR?.[loc] || 0
         if (doc !== undefined && (qty > 0 || drr > 0) && optimal > 0) {
           const actualDoc = doc >= 9999 ? 9999 : doc
-          if (actualDoc / optimal > 2.0) {
-            const excessDays = actualDoc - optimal * 2
+          if (actualDoc / optimal > 1.0) {
+            const excessDays = actualDoc - optimal
             const excessQty = drr > 0 ? Math.round(excessDays * drr) : qty
             total += excessQty
           }
@@ -185,7 +185,7 @@ function StockAnalysis() {
             <span style={{ width: 10, height: 10, borderRadius: 2, background: cfg.bg, border: `1px solid ${cfg.border}`, display: 'inline-block' }} />
             <span style={{ color: cfg.color, fontWeight: 600 }}>{cfg.label}</span>
             <span style={{ color: '#9ca3af' }}>
-              {key === 'critical' ? '(<50% target)' : key === 'understock' ? '(50-100%)' : key === 'balanced' ? '(100-200%)' : '(>200%)'}
+              {key === 'critical' ? '(<50% target)' : key === 'understock' ? '(50-100%)' : key === 'balanced' ? '(at target)' : '(>100%)'}
             </span>
           </span>
         ))}
