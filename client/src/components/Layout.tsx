@@ -9,21 +9,6 @@ function Layout() {
           <h1 className="logo">Demand Planner</h1>
         </div>
         <nav className="sidebar-nav">
-          <NavLink to="/" end className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            Dashboard
-          </NavLink>
-          <NavLink to="/products" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            Products
-          </NavLink>
-          <NavLink to="/inventory" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            Inventory
-          </NavLink>
-          <NavLink to="/demand" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            Demand Data
-          </NavLink>
-          <NavLink to="/forecasts" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            Forecasts
-          </NavLink>
           <NavLink to="/promotion-calendar" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Promotion Calendar
           </NavLink>
