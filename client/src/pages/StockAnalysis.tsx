@@ -221,26 +221,33 @@ function StockAnalysis() {
         </span>
       </div>
 
-      {/* Overstock summary per warehouse */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        {allLocations.map(loc => {
-          const qty = overstockByLocation[loc] || 0
-          if (qty === 0) return null
-          return (
-            <div key={loc} style={{
-              padding: '0.4rem 0.7rem', borderRadius: '6px',
-              background: STATUS_CONFIG.overstock.bg,
-              border: `1px solid ${STATUS_CONFIG.overstock.border}`,
-              fontSize: '0.75rem',
-            }}>
-              <span style={{ fontWeight: 600, color: '#374151' }}>{loc}</span>
-              <span style={{ color: STATUS_CONFIG.overstock.color, fontWeight: 700, marginLeft: '0.4rem' }}>
-                +{qty.toLocaleString()}
-              </span>
-              <span style={{ color: '#9ca3af', fontSize: '0.65rem', marginLeft: '0.2rem' }}>overstock</span>
-            </div>
-          )
-        })}
+      {/* Overstock summary */}
+      <div style={{ marginBottom: '1rem' }}>
+        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#374151', marginBottom: '0.3rem' }}>Overstock</div>
+        <table style={{ borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+          <tbody>
+            <tr>
+              {allLocations.map(loc => (
+                <td key={loc} style={{ padding: '0.2rem 0.6rem', color: '#6b7280', fontWeight: 500, borderBottom: '1px solid #e5e7eb' }}>
+                  {loc}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              {allLocations.map(loc => {
+                const qty = overstockByLocation[loc] || 0
+                return (
+                  <td key={loc} style={{
+                    padding: '0.2rem 0.6rem', fontWeight: 700, textAlign: 'right',
+                    color: qty > 0 ? STATUS_CONFIG.overstock.color : '#d1d5db',
+                  }}>
+                    {qty > 0 ? `+${qty.toLocaleString()}` : '\u2014'}
+                  </td>
+                )
+              })}
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       {/* SKU x Warehouse matrix table */}
