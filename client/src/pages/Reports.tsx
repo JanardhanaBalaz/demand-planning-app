@@ -191,9 +191,28 @@ function Reports() {
       .map(([color, sizes]) => ({ color, displayName: COLOR_DISPLAY_NAMES[color] || color, sizes, total: Object.values(sizes).reduce((s, c) => s + c, 0) }))
       .sort((a, b) => { const ia = COLOR_ORDER.indexOf(a.color), ib = COLOR_ORDER.indexOf(b.color); if (ia !== -1 && ib !== -1) return ia - ib; if (ia !== -1) return -1; if (ib !== -1) return 1; return a.color.localeCompare(b.color) })
 
+    // Top SKUs by pendency
+    const skuStats: Record<string, { total: number; critical: number; totalDays: number }> = {}
+    for (const row of dailyShipping.data) {
+      const days = row.DAYS_FROM_SIZE
+      const count = row.RING_COUNT || 0
+      const sku = row.SKU || ''
+      if (days < 0 || !sku) continue
+      const bucket = getAgingBucket(days)
+      if (b2cAgingFilter.length > 0 && !b2cAgingFilter.includes(bucket)) continue
+      if (!skuStats[sku]) skuStats[sku] = { total: 0, critical: 0, totalDays: 0 }
+      skuStats[sku].total += count
+      skuStats[sku].totalDays += days * count
+      if (days > 30) skuStats[sku].critical += count
+    }
+    const topSkus = Object.entries(skuStats)
+      .map(([sku, s]) => ({ sku, total: s.total, critical: s.critical, avgDays: s.total > 0 ? Math.round(s.totalDays / s.total) : 0 }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10)
+
     return {
       total, critical, urgent, avgDays: total > 0 ? Math.round(totalDays / total) : 0,
-      aging, colorPivot: colorTotals, sortedSizes, unfilteredAging,
+      aging, colorPivot: colorTotals, sortedSizes, unfilteredAging, topSkus,
     }
   }, [dailyShipping, b2cAgingFilter])
 
@@ -729,47 +748,169 @@ function Reports() {
     if (!b2cData) return <p>No B2C data available</p>
 
     const hasFilters = b2cAgingFilter.length > 0
+    const maxAgingCount = Math.max(...Object.values(b2cData.unfilteredAging), 1)
+
+    // Color display name mapping matching the screenshot style
+    const colorSnakeNames: Record<string, string> = {
+      'AA': 'air_aster_black', 'AG': 'air_gold', 'AS': 'air_silver',
+      'MG': 'matte_grey', 'RT': 'raw_titanium', 'BR': 'brushed_rose_gold',
+      'DB': 'diesel_phantom', 'DS': 'diesel_cryo_silver',
+      'WA': 'ws_air_aster_black', 'WG': 'ws_air_gold', 'WS': 'ws_air_silver',
+      'WM': 'ws_matte_grey', 'WR': 'ws_raw_titanium', 'WT': 'ws_brushed_rose_gold',
+      'LG': 'dune', 'LP': 'desert_snow', 'LR': 'desert_rose',
+    }
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>B2C Pendency Aging Dashboard</h2>
-            <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Real-time aging analysis based on Days from Size &middot; Metabase Q8207</span>
+            <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700 }}>B2C Pendency Aging Dashboard</h2>
+            <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Real-time aging analysis based on Size Date</span>
           </div>
-          {hasFilters && (
-            <button onClick={() => { setB2cAgingFilter([]) }}
-              style={{ padding: '0.3rem 0.75rem', border: '1px solid #f97316', borderRadius: '6px', background: '#fff7ed', color: '#ea580c', fontSize: '0.75rem', cursor: 'pointer' }}>
-              Clear Filters
-            </button>
-          )}
-        </div>
-
-        {/* Active filters */}
-        {hasFilters && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', padding: '0.5rem', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px' }}>
-            <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#ea580c' }}>Filters:</span>
-            {b2cAgingFilter.map(f => filterBadge(AGING_BUCKETS.find(b => b.key === f)?.label || f, () => toggleFilter(b2cAgingFilter, setB2cAgingFilter, f)))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {hasFilters && (
+              <button onClick={() => setB2cAgingFilter([])}
+                style={{ padding: '0.3rem 0.75rem', border: '1px solid #f97316', borderRadius: '6px', background: '#fff7ed', color: '#ea580c', fontSize: '0.75rem', cursor: 'pointer' }}>
+                Clear Filters
+              </button>
+            )}
           </div>
-        )}
-
-        {/* KPIs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
-          {kpiCard('Total Pendency', b2cData.total, '#2563eb', '#eff6ff', '#dbeafe', '#bfdbfe')}
-          {kpiCard('Critical (>30d)', b2cData.critical, '#dc2626', '#fef2f2', '#fee2e2', '#fecaca')}
-          {kpiCard('Urgent (16-30d)', b2cData.urgent, '#d97706', '#fffbeb', '#fef3c7', '#fde68a')}
-          {kpiCard('Avg Age', `${b2cData.avgDays}d`, '#6b7280', '#f9fafb', '#f3f4f6', '#e5e7eb')}
         </div>
 
-        {/* Aging distribution */}
-        <div className="card" style={{ padding: '1rem' }}>
-          <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600 }}>Aging Distribution (click to filter)</h3>
-          {agingBar(b2cData.aging, b2cData.total, (k) => toggleFilter(b2cAgingFilter, setB2cAgingFilter, k), b2cAgingFilter)}
+        {/* KPI Cards — 3 columns matching screenshot */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
+          <div style={{ padding: '1rem 1.25rem', borderRadius: '8px', border: '1px solid #bfdbfe', background: '#fff' }}>
+            <div style={{ fontSize: '2rem', fontWeight: 700, color: '#2563eb' }}>{b2cData.total}</div>
+            <div style={{ fontSize: '0.8rem', color: '#2563eb' }}>Total Pendency</div>
+          </div>
+          <div style={{ padding: '1rem 1.25rem', borderRadius: '8px', border: '1px solid #fecaca', background: '#fff' }}>
+            <div style={{ fontSize: '2rem', fontWeight: 700, color: '#dc2626' }}>{b2cData.critical}</div>
+            <div style={{ fontSize: '0.8rem', color: '#dc2626' }}>Critical (&gt;30 days)</div>
+          </div>
+          <div style={{ padding: '1rem 1.25rem', borderRadius: '8px', border: '1px solid #fed7aa', background: '#fff' }}>
+            <div style={{ fontSize: '2rem', fontWeight: 700, color: '#ea580c' }}>{b2cData.urgent}</div>
+            <div style={{ fontSize: '0.8rem', color: '#ea580c' }}>Urgent (16-30 days)</div>
+          </div>
         </div>
 
-        {/* Color × Size pivot */}
-        {renderColorSizePivot(b2cData.colorPivot, b2cData.sortedSizes, 'Color × Size Breakdown')}
+        {/* 3-column row: Aging Distribution | (placeholder) | Top SKUs */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+          {/* Aging Distribution — horizontal bars */}
+          <div className="card" style={{ padding: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>Aging Distribution</h3>
+              <span style={{ fontSize: '0.65rem', color: '#9ca3af' }}>Click to filter</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              {AGING_BUCKETS.map(b => {
+                const count = b2cData.aging[b.key] || 0
+                const unfilteredCount = b2cData.unfilteredAging[b.key] || 0
+                const pct = b2cData.total > 0 ? Math.round((count / b2cData.total) * 100) : 0
+                const barWidth = maxAgingCount > 0 ? Math.max((unfilteredCount / maxAgingCount) * 100, 2) : 0
+                const isActive = b2cAgingFilter.length === 0 || b2cAgingFilter.includes(b.key)
+                return (
+                  <div key={b.key} onClick={() => toggleFilter(b2cAgingFilter, setB2cAgingFilter, b.key)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', opacity: isActive ? 1 : 0.4 }}>
+                    <span style={{ fontSize: '0.75rem', color: '#374151', minWidth: '75px', whiteSpace: 'nowrap' }}>{b.label}</span>
+                    <div style={{ flex: 1, position: 'relative', height: '22px', background: '#f3f4f6', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ width: `${barWidth}%`, height: '100%', background: b.color, borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: count > 0 ? 'center' : 'flex-start', paddingLeft: count > 0 ? 0 : '4px', transition: 'width 0.3s' }}>
+                        {count > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#fff' }}>{count}</span>}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#374151', minWidth: '28px', textAlign: 'right' }}>{count}</span>
+                    <span style={{ fontSize: '0.7rem', color: '#9ca3af', minWidth: '28px', textAlign: 'right' }}>{pct}%</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Middle column — placeholder for geography/status if available later */}
+          <div className="card" style={{ padding: '1rem' }}>
+            <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600 }}>Summary</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Average Age</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: b2cData.avgDays > 15 ? '#dc2626' : b2cData.avgDays > 7 ? '#d97706' : '#059669' }}>{b2cData.avgDays} days</div>
+              </div>
+              <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '0.75rem' }}>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.5rem' }}>By Category</div>
+                {INVENTORY_CATEGORIES.map(cat => {
+                  const catTotal = cat.colors.reduce((sum, c) => {
+                    const colorData = b2cData.colorPivot.find(cp => cp.color === c)
+                    return sum + (colorData?.total || 0)
+                  }, 0)
+                  if (catTotal === 0) return null
+                  return (
+                    <div key={cat.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.2rem 0', fontSize: '0.75rem' }}>
+                      <span style={{ color: cat.text }}>{cat.name}</span>
+                      <span style={{ fontWeight: 600 }}>{catTotal}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Top SKUs by Pendency */}
+          <div className="card" style={{ padding: '1rem' }}>
+            <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600 }}>Top SKUs by Pendency</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              {b2cData.topSkus.map((s, i) => (
+                <div key={s.sku} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{
+                    width: '20px', height: '20px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '0.65rem', fontWeight: 700, color: '#fff',
+                    background: i < 3 ? '#dc2626' : '#9ca3af',
+                  }}>{i + 1}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>{s.sku}</div>
+                    <div style={{ fontSize: '0.65rem', color: s.critical > 0 ? '#dc2626' : '#6b7280' }}>
+                      {s.critical > 0 ? <span style={{ color: '#dc2626' }}>{s.critical} critical</span> : <span>0 critical</span>}
+                      {' | Avg: '}{s.avgDays}d
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#111827' }}>{s.total}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* SKU Breakdown (Color x Size) */}
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderBottom: '1px solid #e5e7eb' }}>
+            <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>SKU Breakdown (Color x Size)</h3>
+            <span style={{ fontSize: '0.7rem', color: '#6b7280' }}>{b2cData.colorPivot.length} colors</span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.75rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStyle, minWidth: '200px' }}>Color</th>
+                  {b2cData.sortedSizes.map(s => <th key={s} style={{ ...thStyle, textAlign: 'center', minWidth: '45px' }}>{s}</th>)}
+                  <th style={{ ...thStyle, textAlign: 'center', background: '#fee2e2', color: '#dc2626', minWidth: '55px' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {b2cData.colorPivot.map(row => (
+                  <tr key={row.color} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '0.4rem 0.75rem' }}>
+                      <span style={{ fontWeight: 600 }}>{colorSnakeNames[row.color] || row.color}</span>
+                      {' '}<span style={{ color: '#9ca3af' }}>{colorSnakeNames[row.color] || ''}</span>
+                    </td>
+                    {b2cData.sortedSizes.map(s => {
+                      const v = row.sizes[s] || 0
+                      return <td key={s} style={{ ...tdCenter, color: v > 0 ? '#111827' : '#d1d5db' }}>{v || '-'}</td>
+                    })}
+                    <td style={{ ...tdCenter, fontWeight: 700, color: '#dc2626', background: '#fef2f2' }}>{row.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     )
   }
@@ -892,6 +1033,23 @@ function Reports() {
     if (errors.inv) return <p style={{ color: '#dc2626' }}>{errors.inv}</p>
     if (!invData) return <p>No inventory data available</p>
 
+    // Build flat Color×Size data across all categories
+    const allColorRows: { color: string; displayName: string; sizes: Record<string, number>; total: number }[] = []
+    const allSizesSet = new Set<string>()
+    for (const cat of invData.categoryData) {
+      const cfg = INVENTORY_CATEGORIES.find(c => c.name === cat.name)
+      const colors = cfg?.colors || []
+      for (const c of colors) {
+        const sizes = cat.colorSizePivot[c] || {}
+        const total = Object.values(sizes).reduce((s: number, v: any) => s + (typeof v === 'number' ? v : 0), 0)
+        if (total > 0) {
+          allColorRows.push({ color: c, displayName: COLOR_DISPLAY_NAMES[c] || c, sizes, total })
+          Object.keys(sizes).forEach(s => allSizesSet.add(s))
+        }
+      }
+    }
+    const allSizesSorted = sortSizes(Array.from(allSizesSet))
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div>
@@ -899,42 +1057,79 @@ function Reports() {
           <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Filtered to BLR warehouses &middot; {invData.totalQuantity} total units</span>
         </div>
 
-        {/* Category KPIs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
-          {invData.categoryData.map((cat: any) => {
-            const cfg = INVENTORY_CATEGORIES.find(c => c.name === cat.name)
-            return kpiCard(cat.name, cat.totalQuantity, cfg?.text || '#6b7280', cfg?.bg || '#f9fafb', cfg?.headerBg || '#f3f4f6', cfg?.border || '#e5e7eb')
-          })}
+        {/* By Category — cards with per-color breakdown */}
+        <div className="card" style={{ padding: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>By Category</h3>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
+            {invData.categoryData.map((cat: any) => {
+              const cfg = INVENTORY_CATEGORIES.find(c => c.name === cat.name)
+              if (!cfg) return null
+              const colors = cfg.colors
+              return (
+                <div key={cat.name} style={{ padding: '0.75rem 1rem', borderRadius: '8px', border: `1px solid ${cfg.border}`, background: cfg.bg }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: cfg.text }}>{cat.name}</span>
+                    <span style={{ fontSize: '1.5rem', fontWeight: 700, color: cfg.text }}>{cat.totalQuantity}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                    {colors.map((c: string) => {
+                      const colorTotal = Object.values(cat.colorSizePivot[c] || {}).reduce((s: number, v: any) => s + (typeof v === 'number' ? v : 0), 0)
+                      if (colorTotal === 0) return null
+                      return (
+                        <div key={c} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                          <span style={{ color: '#374151' }}>{c}</span>
+                          <span style={{ fontWeight: 600, color: cfg.text }}>{colorTotal}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
 
-        {/* Per-category Color×Size pivots */}
-        {invData.categoryData.map((cat: any) => {
-          const cfg = INVENTORY_CATEGORIES.find(c => c.name === cat.name)
-          const colors = cfg?.colors || []
-          const pivotData = colors.map((c: string) => ({
-            color: c,
-            sizes: cat.colorSizePivot[c] || {},
-            total: Object.values(cat.colorSizePivot[c] || {}).reduce((s: number, v: any) => s + (typeof v === 'number' ? v : 0), 0),
-          })).filter((r: any) => r.total > 0)
-
-          if (pivotData.length === 0) return null
-          return (
-            <div key={cat.name}>
-              {renderColorSizePivot(pivotData, cat.sortedSizes, `${cat.name} — Color × Size`)}
-            </div>
-          )
-        })}
-
-        {/* Warehouse distribution */}
-        <div className="card" style={{ padding: '1rem' }}>
-          <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600 }}>Warehouse Distribution</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-            {Object.entries(invData.warehouseDistribution).sort((a, b) => b[1] - a[1]).map(([wh, qty]) => (
-              <div key={wh} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.3rem 0.5rem', fontSize: '0.75rem' }}>
-                <span>{wh}</span>
-                <span style={{ fontWeight: 600 }}>{qty}</span>
-              </div>
-            ))}
+        {/* SKU Breakdown (Color x Size) — single flat table */}
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #e5e7eb' }}>
+            <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>SKU Breakdown (Color x Size)</h3>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.75rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStyle, minWidth: '180px' }}>Color</th>
+                  {allSizesSorted.map(s => <th key={s} style={{ ...thStyle, textAlign: 'center', minWidth: '50px' }}>{s.padStart(2, '0')}</th>)}
+                  <th style={{ ...thStyle, textAlign: 'center', color: '#7c3aed', minWidth: '55px' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allColorRows.map(row => (
+                  <tr key={row.color} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '0.4rem 0.75rem' }}>
+                      <span style={{ fontWeight: 600 }}>{row.color}</span>
+                      {' '}<span style={{ color: '#9ca3af' }}>{row.displayName}</span>
+                    </td>
+                    {allSizesSorted.map(s => {
+                      const v = row.sizes[s] || 0
+                      return <td key={s} style={{ ...tdCenter, color: v > 0 ? '#2563eb' : '#d1d5db' }}>{v || '-'}</td>
+                    })}
+                    <td style={{ ...tdCenter, fontWeight: 700, color: '#7c3aed' }}>{row.total}</td>
+                  </tr>
+                ))}
+                {/* Totals row */}
+                <tr style={{ borderTop: '2px solid #d1d5db', background: '#f9fafb' }}>
+                  <td style={{ padding: '0.4rem 0.75rem', fontWeight: 700 }}>Total</td>
+                  {allSizesSorted.map(s => {
+                    const colTotal = allColorRows.reduce((sum, r) => sum + (r.sizes[s] || 0), 0)
+                    return <td key={s} style={{ ...tdCenter, fontWeight: 700, color: '#2563eb' }}>{colTotal || '-'}</td>
+                  })}
+                  <td style={{ ...tdCenter, fontWeight: 700, color: '#7c3aed' }}>{invData.totalQuantity}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
