@@ -143,6 +143,10 @@ export const stockAnalysisApi = {
     api.put('/stock-analysis/optimal-doc', { settings }),
 }
 
+export const openOrdersApi = {
+  getData: () => api.get('/open-orders'),
+}
+
 export const replenishmentPlanApi = {
   getData: (targetDays?: number) => api.get('/replenishment-plan', { params: { targetDays } }),
 }

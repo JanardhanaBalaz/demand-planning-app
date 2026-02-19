@@ -27,6 +27,9 @@ function Layout() {
           <NavLink to="/replenishment-plan" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             FBA Replenishment
           </NavLink>
+          <NavLink to="/open-orders" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            Open Orders
+          </NavLink>
           <NavLink to="/rule-engine" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Rule Engine
           </NavLink>
