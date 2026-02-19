@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 const router = Router();
 
 const WMS_API_BASE = 'https://uh-wms-api.onrender.com/api/v1';
-const WMS_TOKEN = process.env.WMS_API_TOKEN || '';
+const WMS_TOKEN = (process.env.WMS_API_TOKEN || '').trim();
 const METABASE_URL = process.env.METABASE_URL || 'https://metabase.ultrahuman.com';
 const METABASE_API_KEY = process.env.METABASE_API_KEY || '';
 
