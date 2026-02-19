@@ -229,7 +229,7 @@ function StockAnalysis() {
                     style={{ cursor: 'pointer', textAlign: 'right' }}
                   >
                     <div>{loc}{sortIndicator(loc)}</div>
-                    <div style={{ fontSize: '0.55rem', fontWeight: 500, color: '#6b7280' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#374151', textAlign: 'center' }}>
                       {locationTotals[loc]?.toLocaleString() || 0}
                     </div>
                   </th>
