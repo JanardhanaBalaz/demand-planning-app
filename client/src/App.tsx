@@ -15,6 +15,7 @@ import StockAnalysis from './pages/StockAnalysis'
 import RuleEngine from './pages/RuleEngine'
 import ReplenishmentPlan from './pages/ReplenishmentPlan'
 import OpenOrders from './pages/OpenOrders'
+import Reports from './pages/Reports'
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
         <Route path="rule-engine" element={<RuleEngine />} />
         <Route path="replenishment-plan" element={<ReplenishmentPlan />} />
         <Route path="open-orders" element={<OpenOrders />} />
+        <Route path="reports" element={<Reports />} />
         <Route path="import" element={<Import />} />
         <Route path="users" element={<Users />} />
       </Route>

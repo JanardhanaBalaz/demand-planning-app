@@ -88,8 +88,8 @@ function OpenOrders() {
       if (sortKey === 'age' || sortKey === 'created_at') {
         cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       } else {
-        const aVal = (a as Record<string, unknown>)[sortKey] as string || ''
-        const bVal = (b as Record<string, unknown>)[sortKey] as string || ''
+        const aVal = (a as unknown as Record<string, unknown>)[sortKey] as string || ''
+        const bVal = (b as unknown as Record<string, unknown>)[sortKey] as string || ''
         cmp = aVal.localeCompare(bVal)
       }
       return sortDir === 'asc' ? cmp : -cmp

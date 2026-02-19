@@ -158,6 +158,12 @@ export const ruleEngineApi = {
     api.put(`/rule-engine/${id}`, data),
 }
 
+export const reportsApi = {
+  getDailyShipping: () => api.get('/reports/daily-shipping'),
+  getB2BBulkOrders: () => api.get('/reports/b2b-bulk-orders'),
+  getInventory: () => api.get('/reports/inventory'),
+}
+
 export const globalInventoryApi = {
   getData: () => api.get('/global-inventory'),
   refresh: () => api.post('/global-inventory/refresh'),

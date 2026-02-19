@@ -12,6 +12,7 @@ import ruleEngineRoutes from './routes/rule-engine.js';
 import stockAnalysisRoutes from './routes/stock-analysis.js';
 import replenishmentPlanRoutes from './routes/replenishment-plan.js';
 import openOrdersRoutes from './routes/open-orders.js';
+import reportsRoutes from './routes/reports.js';
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ app.use('/api/rule-engine', ruleEngineRoutes);
 app.use('/api/stock-analysis', stockAnalysisRoutes);
 app.use('/api/replenishment-plan', replenishmentPlanRoutes);
 app.use('/api/open-orders', openOrdersRoutes);
+app.use('/api/reports', reportsRoutes);
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
