@@ -93,6 +93,29 @@ function StockAnalysis() {
 
   const getOptimal = useCallback((loc: string) => optimalDOC[loc] || 30, [optimalDOC])
 
+  const overstockByLocation = useMemo(() => {
+    const result: Record<string, number> = {}
+    for (const loc of allLocations) {
+      const optimal = optimalDOC[loc] || 30
+      let total = 0
+      for (const s of skus) {
+        const qty = s.warehouseStock[loc] || 0
+        const doc = s.warehouseDOC?.[loc]
+        const drr = s.warehouseDRR?.[loc] || 0
+        if (doc !== undefined && (qty > 0 || drr > 0) && optimal > 0) {
+          const actualDoc = doc >= 9999 ? 9999 : doc
+          if (actualDoc / optimal > 2.0) {
+            const excessDays = actualDoc - optimal * 2
+            const excessQty = drr > 0 ? Math.round(excessDays * drr) : qty
+            total += excessQty
+          }
+        }
+      }
+      result[loc] = total
+    }
+    return result
+  }, [skus, allLocations, optimalDOC])
+
   const handleDocInputChange = (loc: string, value: string) => {
     setDocInputs(prev => ({ ...prev, [loc]: value }))
   }
@@ -196,6 +219,28 @@ function StockAnalysis() {
         <span style={{ fontSize: '0.75rem', color: '#9ca3af', marginLeft: 'auto' }}>
           {filtered.length} of {skus.length} SKUs
         </span>
+      </div>
+
+      {/* Overstock summary per warehouse */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        {allLocations.map(loc => {
+          const qty = overstockByLocation[loc] || 0
+          if (qty === 0) return null
+          return (
+            <div key={loc} style={{
+              padding: '0.4rem 0.7rem', borderRadius: '6px',
+              background: STATUS_CONFIG.overstock.bg,
+              border: `1px solid ${STATUS_CONFIG.overstock.border}`,
+              fontSize: '0.75rem',
+            }}>
+              <span style={{ fontWeight: 600, color: '#374151' }}>{loc}</span>
+              <span style={{ color: STATUS_CONFIG.overstock.color, fontWeight: 700, marginLeft: '0.4rem' }}>
+                +{qty.toLocaleString()}
+              </span>
+              <span style={{ color: '#9ca3af', fontSize: '0.65rem', marginLeft: '0.2rem' }}>overstock</span>
+            </div>
+          )
+        })}
       </div>
 
       {/* SKU x Warehouse matrix table */}
