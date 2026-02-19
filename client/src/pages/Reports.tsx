@@ -111,8 +111,6 @@ function Reports() {
 
   // Filters
   const [b2cAgingFilter, setB2cAgingFilter] = useState<string[]>([])
-  const [b2cGeoFilter, setB2cGeoFilter] = useState<string[]>([])
-  const [b2cStatusFilter, setB2cStatusFilter] = useState<string[]>([])
   const [b2bAgingFilter, setB2bAgingFilter] = useState<string[]>([])
   const [b2bVendorFilter, setB2bVendorFilter] = useState<string[]>([])
   const [b2bStatusFilter, setB2bStatusFilter] = useState<string[]>([])
@@ -140,72 +138,52 @@ function Reports() {
     setArr(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val])
   }, [])
 
-  // ─── B2C Pendency Calculation ──────────────────────────────────────────────
+  // ─── B2C Pendency Calculation (Q8207: DAYS_FROM_SIZE, SKU, RING_COUNT) ─────
 
   const b2cData = useMemo(() => {
     if (!dailyShipping?.data) return null
-    const now = new Date()
-    const unfilteredAging: Record<string, number> = {}
-    const unfilteredGeo: Record<string, number> = {}
-    const unfilteredStatus: Record<string, number> = {}
-    const allStatuses = new Set<string>()
 
+    const unfilteredAging: Record<string, number> = {}
     AGING_BUCKETS.forEach(b => { unfilteredAging[b.key] = 0 })
 
-    for (const order of dailyShipping.data) {
-      const sizeDate = order.SIZE_DATE ? new Date(order.SIZE_DATE) : null
-      if (!sizeDate) continue
-      const days = Math.floor((now.getTime() - sizeDate.getTime()) / 86400000)
+    for (const row of dailyShipping.data) {
+      const days = row.DAYS_FROM_SIZE
+      const count = row.RING_COUNT || 0
       if (days < 0) continue
       const bucket = getAgingBucket(days)
-      const country = (order.COUNTRY || order.Country || '').toString().trim().toUpperCase()
-      const geo = ['UNITED STATES', 'US', 'USA'].includes(country) ? 'US' : 'Non-US'
-      const status = order.STATUS || 'unknown'
-      unfilteredAging[bucket] = (unfilteredAging[bucket] || 0) + 1
-      unfilteredGeo[geo] = (unfilteredGeo[geo] || 0) + 1
-      unfilteredStatus[status] = (unfilteredStatus[status] || 0) + 1
-      allStatuses.add(status)
+      unfilteredAging[bucket] = (unfilteredAging[bucket] || 0) + count
     }
 
     const aging: Record<string, number> = {}
-    const geo: Record<string, number> = {}
-    const status: Record<string, number> = {}
-    const statusByGeo: Record<string, { US: number; 'Non-US': number }> = {}
     const colorPivot: Record<string, Record<string, number>> = {}
     const allSizes = new Set<string>()
     let total = 0, critical = 0, urgent = 0, totalDays = 0
 
     AGING_BUCKETS.forEach(b => { aging[b.key] = 0 })
 
-    for (const order of dailyShipping.data) {
-      const sizeDate = order.SIZE_DATE ? new Date(order.SIZE_DATE) : null
-      if (!sizeDate) continue
-      const days = Math.floor((now.getTime() - sizeDate.getTime()) / 86400000)
-      if (days < 0) continue
+    for (const row of dailyShipping.data) {
+      const days = row.DAYS_FROM_SIZE
+      const count = row.RING_COUNT || 0
+      const sku = row.SKU || ''
+      if (days < 0 || !sku) continue
+
       const bucket = getAgingBucket(days)
-      const country = (order.COUNTRY || order.Country || '').toString().trim().toUpperCase()
-      const geoVal = ['UNITED STATES', 'US', 'USA'].includes(country) ? 'US' : 'Non-US'
-      const statusVal = order.STATUS || 'unknown'
-
       if (b2cAgingFilter.length > 0 && !b2cAgingFilter.includes(bucket)) continue
-      if (b2cGeoFilter.length > 0 && !b2cGeoFilter.includes(geoVal)) continue
-      if (b2cStatusFilter.length > 0 && !b2cStatusFilter.includes(statusVal)) continue
 
-      total++
-      totalDays += days
-      if (days > 30) critical++
-      if (days > 15 && days <= 30) urgent++
-      aging[bucket] = (aging[bucket] || 0) + 1
-      geo[geoVal] = (geo[geoVal] || 0) + 1
-      status[statusVal] = (status[statusVal] || 0) + 1
-      if (!statusByGeo[statusVal]) statusByGeo[statusVal] = { US: 0, 'Non-US': 0 }
-      statusByGeo[statusVal][geoVal as 'US' | 'Non-US']++
+      const color = sku.substring(0, 2).toUpperCase()
+      const size = sku.substring(2).replace(/^0+/, '') || sku.substring(2)
 
-      const color = order.COLOR || order.Color || 'Unknown'
-      const size = String(order.SIZE || order.Size || 'Unknown')
-      allSizes.add(size)
-      if (!colorPivot[color]) colorPivot[color] = {}
-      colorPivot[color][size] = (colorPivot[color][size] || 0) + 1
+      total += count
+      totalDays += days * count
+      if (days > 30) critical += count
+      if (days > 15 && days <= 30) urgent += count
+      aging[bucket] = (aging[bucket] || 0) + count
+
+      if (color && size) {
+        allSizes.add(size)
+        if (!colorPivot[color]) colorPivot[color] = {}
+        colorPivot[color][size] = (colorPivot[color][size] || 0) + count
+      }
     }
 
     const sortedSizes = sortSizes(Array.from(allSizes))
@@ -215,10 +193,9 @@ function Reports() {
 
     return {
       total, critical, urgent, avgDays: total > 0 ? Math.round(totalDays / total) : 0,
-      aging, geo, status, statusByGeo, colorPivot: colorTotals, sortedSizes,
-      unfilteredAging, unfilteredGeo, unfilteredStatus, allStatuses: Array.from(allStatuses).sort(),
+      aging, colorPivot: colorTotals, sortedSizes, unfilteredAging,
     }
-  }, [dailyShipping, b2cAgingFilter, b2cGeoFilter, b2cStatusFilter])
+  }, [dailyShipping, b2cAgingFilter])
 
   // ─── B2B Pendency Calculation ──────────────────────────────────────────────
 
@@ -381,24 +358,20 @@ function Reports() {
 
   const b2cDemandData = useMemo(() => {
     if (!dailyShipping?.data) return null
-    const now = new Date()
 
-    // Pendency by color×size
+    // Pendency by color×size from Q8207
     const pendency: Record<string, Record<string, number>> = {}
     let totalPendency = 0
-    for (const order of dailyShipping.data) {
-      const sizeDate = order.SIZE_DATE ? new Date(order.SIZE_DATE) : null
-      if (!sizeDate) continue
-      const days = Math.floor((now.getTime() - sizeDate.getTime()) / 86400000)
-      if (days < 0) continue
-      const rawColor = order.COLOR || order.Color || ''
-      const rawSize = String(order.SIZE || order.Size || '')
-      const size = rawSize.replace(/^0+/, '') || rawSize
-      if (!rawColor || !size) continue
-      const color = resolveColor(rawColor)
+    for (const row of dailyShipping.data) {
+      const sku = row.SKU || ''
+      const count = row.RING_COUNT || 0
+      if (!sku || row.DAYS_FROM_SIZE < 0) continue
+      const color = sku.substring(0, 2).toUpperCase()
+      const size = sku.substring(2).replace(/^0+/, '') || sku.substring(2)
+      if (!color || !size) continue
       if (!pendency[color]) pendency[color] = {}
-      pendency[color][size] = (pendency[color][size] || 0) + 1
-      totalPendency++
+      pendency[color][size] = (pendency[color][size] || 0) + count
+      totalPendency += count
     }
 
     // Inventory by color×size
@@ -755,7 +728,7 @@ function Reports() {
     if (errors.b2c) return <p style={{ color: '#dc2626' }}>{errors.b2c}</p>
     if (!b2cData) return <p>No B2C data available</p>
 
-    const hasFilters = b2cAgingFilter.length > 0 || b2cGeoFilter.length > 0 || b2cStatusFilter.length > 0
+    const hasFilters = b2cAgingFilter.length > 0
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -763,10 +736,10 @@ function Reports() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>B2C Pendency Aging Dashboard</h2>
-            <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Real-time aging analysis based on Size Date</span>
+            <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Real-time aging analysis based on Days from Size &middot; Metabase Q8207</span>
           </div>
           {hasFilters && (
-            <button onClick={() => { setB2cAgingFilter([]); setB2cGeoFilter([]); setB2cStatusFilter([]) }}
+            <button onClick={() => { setB2cAgingFilter([]) }}
               style={{ padding: '0.3rem 0.75rem', border: '1px solid #f97316', borderRadius: '6px', background: '#fff7ed', color: '#ea580c', fontSize: '0.75rem', cursor: 'pointer' }}>
               Clear Filters
             </button>
@@ -778,8 +751,6 @@ function Reports() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', padding: '0.5rem', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px' }}>
             <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#ea580c' }}>Filters:</span>
             {b2cAgingFilter.map(f => filterBadge(AGING_BUCKETS.find(b => b.key === f)?.label || f, () => toggleFilter(b2cAgingFilter, setB2cAgingFilter, f)))}
-            {b2cGeoFilter.map(f => filterBadge(f, () => toggleFilter(b2cGeoFilter, setB2cGeoFilter, f)))}
-            {b2cStatusFilter.map(f => filterBadge(f.replace(/_/g, ' '), () => toggleFilter(b2cStatusFilter, setB2cStatusFilter, f)))}
           </div>
         )}
 
@@ -795,69 +766,6 @@ function Reports() {
         <div className="card" style={{ padding: '1rem' }}>
           <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600 }}>Aging Distribution (click to filter)</h3>
           {agingBar(b2cData.aging, b2cData.total, (k) => toggleFilter(b2cAgingFilter, setB2cAgingFilter, k), b2cAgingFilter)}
-        </div>
-
-        {/* Geography + Status side by side */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-          <div className="card" style={{ padding: '1rem' }}>
-            <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600 }}>Geography (click to filter)</h3>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {Object.entries(b2cData.geo).map(([geo, count]) => {
-                const isActive = b2cGeoFilter.length === 0 || b2cGeoFilter.includes(geo)
-                return (
-                  <div key={geo} onClick={() => toggleFilter(b2cGeoFilter, setB2cGeoFilter, geo)}
-                    style={{ flex: 1, padding: '0.75rem', borderRadius: '6px', cursor: 'pointer', textAlign: 'center', background: isActive ? (geo === 'US' ? '#eff6ff' : '#f0fdf4') : '#f9fafb', border: `1px solid ${isActive ? (geo === 'US' ? '#bfdbfe' : '#a7f3d0') : '#e5e7eb'}`, opacity: isActive ? 1 : 0.5 }}>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: geo === 'US' ? '#2563eb' : '#059669' }}>{count}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{geo}</div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="card" style={{ padding: '1rem' }}>
-            <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600 }}>Status (click to filter)</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              {Object.entries(b2cData.status).sort((a, b) => b[1] - a[1]).map(([status, count]) => {
-                const isActive = b2cStatusFilter.length === 0 || b2cStatusFilter.includes(status)
-                const pct = b2cData.total > 0 ? Math.round((count / b2cData.total) * 100) : 0
-                return (
-                  <div key={status} onClick={() => toggleFilter(b2cStatusFilter, setB2cStatusFilter, status)}
-                    style={{ display: 'flex', justifyContent: 'space-between', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer', background: isActive ? '#f9fafb' : 'transparent', opacity: isActive ? 1 : 0.5, fontSize: '0.75rem' }}>
-                    <span>{status.replace(/_/g, ' ')}</span>
-                    <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Status × Geography table */}
-        <div className="card" style={{ overflow: 'hidden' }}>
-          <div style={{ padding: '0.75rem', borderBottom: '1px solid #e5e7eb' }}>
-            <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>Status by Geography</h3>
-          </div>
-          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.75rem' }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Status</th>
-                <th style={{ ...thStyle, textAlign: 'center' }}>US</th>
-                <th style={{ ...thStyle, textAlign: 'center' }}>Non-US</th>
-                <th style={{ ...thStyle, textAlign: 'center' }}>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(b2cData.statusByGeo).sort((a, b) => (b[1].US + b[1]['Non-US']) - (a[1].US + a[1]['Non-US'])).map(([status, geos]) => (
-                <tr key={status} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '0.35rem 0.5rem' }}>{status.replace(/_/g, ' ')}</td>
-                  <td style={tdCenter}>{geos.US}</td>
-                  <td style={tdCenter}>{geos['Non-US']}</td>
-                  <td style={{ ...tdCenter, fontWeight: 600 }}>{geos.US + geos['Non-US']}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
 
         {/* Color × Size pivot */}

@@ -17,21 +17,26 @@ async function wmsGet<T>(path: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-// B2C Daily Shipping Batch (via WMS Metabase proxy)
+// B2C Pendency Summary (Metabase Q8207 — DAYS_FROM_SIZE, SKU, RING_COUNT)
 router.get('/daily-shipping', async (_req: Request, res: Response): Promise<void> => {
   try {
-    if (!WMS_TOKEN) {
-      res.status(500).json({ message: 'WMS_API_TOKEN not configured' });
+    if (!METABASE_API_KEY) {
+      res.status(500).json({ message: 'METABASE_API_KEY not configured' });
       return;
     }
-    const data = await wmsGet<{ success: boolean; columns: unknown[]; data: unknown[]; row_count: number }>(
-      '/metabase/daily-shipping-batch/'
-    );
-    res.json(data);
+    const url = `${METABASE_URL}/api/card/8207/query/json`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': METABASE_API_KEY },
+      body: JSON.stringify({}),
+    });
+    if (!resp.ok) throw new Error(`Metabase Q8207 failed: ${resp.status}`);
+    const rows = await resp.json() as Record<string, unknown>[];
+    res.json({ success: true, data: rows, row_count: rows.length });
   } catch (error) {
-    console.error('Daily shipping fetch failed:', error);
+    console.error('B2C pendency fetch failed:', error);
     const msg = error instanceof Error ? error.message : String(error);
-    res.status(500).json({ message: 'Failed to fetch daily shipping data', detail: msg });
+    res.status(500).json({ message: 'Failed to fetch B2C pendency data', detail: msg });
   }
 });
 
